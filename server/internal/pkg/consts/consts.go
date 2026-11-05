@@ -35,6 +35,7 @@ const (
 	ImsgNumAlert    = 160000
 	ImsgNumLabel    = 170000
 	ImsgNumAgentops = 180000
+	ImsgNumOctop    = 190000
 )
 
 // KnownResourceTypes 全部已知资源类型，供注册声明自检：写错一个不存在的类型，

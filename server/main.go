@@ -18,6 +18,7 @@ import (
 	_ "mayfly-go/internal/mongo/init"
 	_ "mayfly-go/internal/mq/init"
 	_ "mayfly-go/internal/msg/init"
+	_ "mayfly-go/internal/octop/init"
 	"mayfly-go/internal/pkg/config"
 	_ "mayfly-go/internal/redis/init"
 	_ "mayfly-go/internal/sys/init"

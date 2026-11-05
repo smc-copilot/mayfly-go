@@ -1,0 +1,24 @@
+# Octop 二开相关说明（样例，无密钥）。
+# 实际 SSH / DB / Casdoor 凭据走 Mayfly 资源授权凭证与后台表单，不要写进本文件。
+
+# 建议的全局默认（也可在「Octop 管理 → 运行总览 → 采集与留存」覆盖）：
+#   eventRetainDays: 90
+#   metricSampleSec: 120
+#   collectConcurrency: 3
+#   collectTimeoutSec: 45
+
+# 注册实例时引用已有 Mayfly 资源，而不是再抄一份地址密码：
+#   machineId: <t_machine.id>
+#   dbId / dbName: <t_db.id> / <database>
+#   apiUrl: http://<octop-intranet-host>:<port>
+#   startMode: systemd | cli
+#   systemdUnit: octop.service          # 仅 systemd
+#   processMatch: octop                 # 仅命令行，字母数字._-
+
+# Casdoor 连接（后台「Casdoor 目录」配置，密钥只存后端）：
+#   serverUrl: https://casdoor.example.internal
+#   organization: <org>
+#   clientId: <application client id>
+#   timeoutSec: 15
+#   syncIntervalSec: 3600
+#   tlsVerify: true
