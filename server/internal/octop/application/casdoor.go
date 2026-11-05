@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"strings"
+	"sync"
 	"time"
 
 	"mayfly-go/internal/octop/application/dto"
@@ -20,11 +21,13 @@ import (
 
 const casdoorCronKey = "octop-casdoor-sync"
 
+var casdoorSyncLocks sync.Map
+
 type Casdoor interface {
 	base.App[*entity.CasdoorConnection]
 	SaveConnection(ctx context.Context, conn *entity.CasdoorConnection, secret string) error
 	TestConnection(ctx context.Context, conn *entity.CasdoorConnection, secret string) (*dto.CasdoorTestResult, error)
-	Sync(ctx context.Context, id uint64) error
+	Sync(ctx context.Context, id uint64) (*dto.CasdoorSyncResult, error)
 	PageApps(ctx context.Context, q *entity.CasdoorAppQuery) (*model.PageResult[*entity.CasdoorApplicationSnapshot], error)
 	PageUsers(ctx context.Context, q *entity.CasdoorUserQuery) (*model.PageResult[*entity.CasdoorUserSnapshot], error)
 	ListAuths(ctx context.Context, connectionId uint64, appSourceId string) ([]*entity.CasdoorAuthRelation, error)
@@ -38,11 +41,11 @@ type Casdoor interface {
 type casdoorAppImpl struct {
 	base.AppImpl[*entity.CasdoorConnection, repository.CasdoorConnection]
 
-	appRepo      repository.CasdoorApp  `inject:"T"`
-	userRepo     repository.CasdoorUser `inject:"T"`
-	authRepo     repository.CasdoorAuth `inject:"T"`
-	linkRepo     repository.IdentityLink `inject:"T"`
-	newClient    func(casdoor.Config) casdoor.Client
+	appRepo   repository.CasdoorApp   `inject:"T"`
+	userRepo  repository.CasdoorUser  `inject:"T"`
+	authRepo  repository.CasdoorAuth  `inject:"T"`
+	linkRepo  repository.IdentityLink `inject:"T"`
+	newClient func(casdoor.Config) casdoor.Client
 }
 
 var _ Casdoor = (*casdoorAppImpl)(nil)
@@ -72,10 +75,8 @@ func (a *casdoorAppImpl) SaveConnection(ctx context.Context, conn *entity.Casdoo
 		if err != nil {
 			return err
 		}
-		conn.ClientSecretEnc = old.ClientSecretEnc
-		conn.CredentialConfigured = old.CredentialConfigured
-		conn.CredentialRotatedAt = old.CredentialRotatedAt
-		conn.Certificate = old.Certificate
+		preserveConnectionSecrets(conn, old)
+		preserveConnectionSync(conn, old)
 	}
 	if secret != "" {
 		enc, err := utils.PwdAesEncrypt(secret)
@@ -94,70 +95,88 @@ func (a *casdoorAppImpl) SaveConnection(ctx context.Context, conn *entity.Casdoo
 }
 
 func (a *casdoorAppImpl) TestConnection(ctx context.Context, conn *entity.CasdoorConnection, secret string) (*dto.CasdoorTestResult, error) {
-	client, err := a.buildClient(conn, secret)
-	if err != nil {
-		return nil, err
-	}
 	now := time.Now()
 	res := &dto.CasdoorTestResult{
-		Apps:  dto.ProbeItem{Name: "apps", At: &now},
-		Users: dto.ProbeItem{Name: "users", At: &now},
+		Service: dto.ProbeItem{Name: "service", At: &now},
+		Apps:    dto.ProbeItem{Name: "apps", At: &now},
+		Users:   dto.ProbeItem{Name: "users", At: &now},
 	}
-	if err := client.TestApps(ctx); err != nil {
+	client, err := a.buildClient(conn, secret)
+	if err != nil {
+		res.Service.Status = entity.ProbeFail
+		res.Service.Reason = trimErr(err)
 		res.Apps.Status = entity.ProbeFail
-		res.Apps.Reason = err.Error()
-	} else {
-		res.Apps.Status = entity.ProbeOK
-	}
-	if err := client.TestUsers(ctx); err != nil {
+		res.Apps.Reason = trimErr(err)
 		res.Users.Status = entity.ProbeFail
-		res.Users.Reason = err.Error()
-	} else {
-		res.Users.Status = entity.ProbeOK
+		res.Users.Reason = trimErr(err)
+		return res, nil
 	}
+	setProbe(&res.Service, client.TestService(ctx))
+	setProbe(&res.Apps, client.TestApps(ctx))
+	setProbe(&res.Users, client.TestUsers(ctx))
 	return res, nil
 }
 
-func (a *casdoorAppImpl) Sync(ctx context.Context, id uint64) error {
+func (a *casdoorAppImpl) Sync(ctx context.Context, id uint64) (*dto.CasdoorSyncResult, error) {
+	unlock, ok := tryLockCasdoorSync(id)
+	if !ok {
+		return nil, errorx.NewBizI(ctx, imsg.ErrCasdoorSyncBusy)
+	}
+	defer unlock()
+
 	conn, err := a.GetById(id)
 	if err != nil {
 		if model.IsNotFound(err) {
-			return errorx.NewBizI(ctx, imsg.ErrCasdoorNotFound)
+			return nil, errorx.NewBizI(ctx, imsg.ErrCasdoorNotFound)
 		}
-		return err
+		return nil, err
 	}
 	client, err := a.buildClient(conn, "")
 	if err != nil {
-		a.markExpired(ctx, conn, err)
-		return err
+		res := dto.CasdoorSyncResult{}
+		failAllCategories(&res, err)
+		applyCategoryToConn(conn, res)
+		if uerr := a.saveSyncState(ctx, conn); uerr != nil {
+			logx.ErrorTrace("save casdoor sync state", uerr)
+		}
+		return &res, nil
 	}
-	if err := SyncDirectory(ctx, client, conn, a.appRepo, a.userRepo, a.authRepo); err != nil {
-		a.markExpired(ctx, conn, err)
-		return err
+	if err := a.markSyncing(ctx, conn); err != nil {
+		return nil, err
 	}
-	now := time.Now()
-	conn.LastSyncStatus = entity.SyncStatusOK
-	conn.LastSyncAt = &now
-	conn.LastSuccessAt = &now
-	conn.LastSyncError = ""
-	return a.UpdateById(ctx, conn)
+	res := SyncDirectory(ctx, client, conn, a.appRepo, a.userRepo, a.authRepo)
+	applyCategoryToConn(conn, res)
+	if err := a.saveSyncState(ctx, conn); err != nil {
+		return &res, err
+	}
+	return &res, nil
 }
 
-func (a *casdoorAppImpl) markExpired(ctx context.Context, conn *entity.CasdoorConnection, err error) {
+func (a *casdoorAppImpl) markSyncing(ctx context.Context, conn *entity.CasdoorConnection) error {
 	now := time.Now()
-	conn.LastSyncStatus = entity.SyncStatusExpired
+	conn.LastSyncStatus = entity.SyncStatusSyncing
 	conn.LastSyncAt = &now
-	conn.LastSyncError = trimErr(err)
-	if uerr := a.UpdateById(ctx, conn); uerr != nil {
-		logx.ErrorTrace("mark casdoor sync expired", uerr)
-	}
+	conn.AppSyncStatus = entity.SyncStatusSyncing
+	conn.UserSyncStatus = entity.SyncStatusSyncing
+	conn.RelationSyncStatus = entity.SyncStatusSyncing
+	return a.saveSyncState(ctx, conn)
+}
+
+func (a *casdoorAppImpl) saveSyncState(ctx context.Context, conn *entity.CasdoorConnection) error {
+	return a.GetRepo().UpdateById(ctx, conn,
+		"last_sync_status", "last_sync_at", "last_sync_error", "last_success_at",
+		"app_sync_status", "app_sync_at", "app_success_at", "app_sync_error", "app_sync_count", "app_sync_duration_ms",
+		"user_sync_status", "user_sync_at", "user_success_at", "user_sync_error", "user_sync_count", "user_sync_duration_ms",
+		"relation_sync_status", "relation_sync_at", "relation_success_at", "relation_sync_error",
+		"relation_confirmed_count", "relation_unverified_count", "relation_failed_count", "relation_sync_duration_ms",
+	)
 }
 
 func (a *casdoorAppImpl) PageApps(ctx context.Context, q *entity.CasdoorAppQuery) (*model.PageResult[*entity.CasdoorApplicationSnapshot], error) {
 	_ = ctx
 	qd := model.NewCond().Eq("connection_id", q.ConnectionId).Eq("organization", q.Organization)
 	if q.Enabled != nil {
-		qd.Eq("enabled", *q.Enabled)
+		qd.EqStrict("enabled", *q.Enabled)
 	}
 	if q.Keyword != "" {
 		like := "%" + q.Keyword + "%"
@@ -170,7 +189,7 @@ func (a *casdoorAppImpl) PageUsers(ctx context.Context, q *entity.CasdoorUserQue
 	_ = ctx
 	qd := model.NewCond().Eq("connection_id", q.ConnectionId).Eq("organization", q.Organization)
 	if q.Enabled != nil {
-		qd.Eq("enabled", *q.Enabled)
+		qd.EqStrict("enabled", *q.Enabled)
 	}
 	if q.Keyword != "" {
 		like := "%" + q.Keyword + "%"
@@ -216,7 +235,6 @@ func (a *casdoorAppImpl) DeleteIdentityLink(ctx context.Context, id uint64) erro
 
 func (a *casdoorAppImpl) MatchCandidates(ctx context.Context, q *entity.IdentityCandidateQuery) ([]*entity.CasdoorUserSnapshot, error) {
 	_ = ctx
-	// 仅提示，不自动合并。按用户名/邮箱等值查找稳定 ID。
 	qd := model.NewCond().Eq("connection_id", q.ConnectionId)
 	if q.Username != "" {
 		qd.Eq("username", q.Username)
@@ -242,11 +260,16 @@ func (a *casdoorAppImpl) InitCron() {
 			if interval <= 0 {
 				interval = time.Hour
 			}
-			if conn.LastSuccessAt != nil && now.Sub(*conn.LastSuccessAt) < interval {
+			if !categoryDue(conn.AppSuccessAt, interval, now) && !categoryDue(conn.UserSuccessAt, interval, now) {
 				continue
 			}
-			if err := a.Sync(ctx, conn.Id); err != nil {
+			res, err := a.Sync(ctx, conn.Id)
+			if err != nil {
 				logx.Errorf("casdoor sync id=%d err=%v", conn.Id, err)
+				continue
+			}
+			if res != nil && (res.Apps.Error != "" || res.Users.Error != "") {
+				logx.Errorf("casdoor sync id=%d apps=%s users=%s", conn.Id, res.Apps.Error, res.Users.Error)
 			}
 		}
 	})
@@ -268,11 +291,141 @@ func (a *casdoorAppImpl) buildClient(conn *entity.CasdoorConnection, secret stri
 	return a.clientFactory()(casdoor.Config{
 		ServerURL:    conn.ServerURL,
 		Organization: conn.Organization,
+		AppOwner:     conn.AppOwner,
 		ClientID:     conn.ClientId,
 		ClientSecret: plain,
 		Timeout:      timeout,
 		TLSVerify:    conn.TLSVerify != -1,
 	}), nil
+}
+
+func tryLockCasdoorSync(id uint64) (func(), bool) {
+	v, _ := casdoorSyncLocks.LoadOrStore(id, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	if !mu.TryLock() {
+		return nil, false
+	}
+	return mu.Unlock, true
+}
+
+func setProbe(item *dto.ProbeItem, err error) {
+	if err != nil {
+		item.Status = entity.ProbeFail
+		item.Reason = trimErr(err)
+		return
+	}
+	item.Status = entity.ProbeOK
+}
+
+func failAllCategories(res *dto.CasdoorSyncResult, err error) {
+	now := time.Now().UTC()
+	msg := trimErr(err)
+	res.Apps = dto.CategorySyncResult{Name: "apps", Status: entity.SyncStatusFailed, Error: msg, AttemptAt: &now}
+	res.Users = dto.CategorySyncResult{Name: "users", Status: entity.SyncStatusFailed, Error: msg, AttemptAt: &now}
+	res.Relations = dto.CategorySyncResult{Name: "relations", Status: entity.SyncStatusFailed, Error: msg, AttemptAt: &now}
+}
+
+func applyCategoryToConn(conn *entity.CasdoorConnection, res dto.CasdoorSyncResult) {
+	now := time.Now()
+	conn.LastSyncAt = &now
+	applyAppSync(conn, res.Apps)
+	applyUserSync(conn, res.Users)
+	applyRelationSync(conn, res.Relations)
+	conn.LastSyncStatus = rollupStatus(res.Apps.Status, res.Users.Status)
+	conn.LastSyncError = firstNonEmpty(res.Apps.Error, res.Users.Error, res.Relations.Error)
+	if res.Apps.Status == entity.SyncStatusSuccess || res.Users.Status == entity.SyncStatusSuccess {
+		conn.LastSuccessAt = &now
+	}
+}
+
+func applyAppSync(conn *entity.CasdoorConnection, r dto.CategorySyncResult) {
+	conn.AppSyncStatus = r.Status
+	conn.AppSyncAt = r.AttemptAt
+	conn.AppSyncError = r.Error
+	conn.AppSyncCount = r.Count
+	conn.AppSyncDurationMs = r.DurationMs
+	if r.SuccessAt != nil {
+		conn.AppSuccessAt = r.SuccessAt
+	}
+}
+
+func applyUserSync(conn *entity.CasdoorConnection, r dto.CategorySyncResult) {
+	conn.UserSyncStatus = r.Status
+	conn.UserSyncAt = r.AttemptAt
+	conn.UserSyncError = r.Error
+	conn.UserSyncCount = r.Count
+	conn.UserSyncDurationMs = r.DurationMs
+	if r.SuccessAt != nil {
+		conn.UserSuccessAt = r.SuccessAt
+	}
+}
+
+func applyRelationSync(conn *entity.CasdoorConnection, r dto.CategorySyncResult) {
+	conn.RelationSyncStatus = r.Status
+	conn.RelationSyncAt = r.AttemptAt
+	conn.RelationSyncError = r.Error
+	conn.RelationConfirmedCount = r.Confirmed
+	conn.RelationUnverifiedCount = r.Unverified
+	conn.RelationFailedCount = r.Failed
+	conn.RelationSyncDurationMs = r.DurationMs
+	if r.SuccessAt != nil {
+		conn.RelationSuccessAt = r.SuccessAt
+	}
+}
+
+func rollupStatus(appStatus, userStatus string) string {
+	if appStatus == entity.SyncStatusSuccess && userStatus == entity.SyncStatusSuccess {
+		return entity.SyncStatusSuccess
+	}
+	if appStatus == entity.SyncStatusSuccess || userStatus == entity.SyncStatusSuccess ||
+		appStatus == entity.SyncStatusStale || userStatus == entity.SyncStatusStale {
+		return entity.SyncStatusStale
+	}
+	if appStatus == entity.SyncStatusFailed || userStatus == entity.SyncStatusFailed {
+		return entity.SyncStatusFailed
+	}
+	return entity.SyncStatusNever
+}
+
+func categoryDue(lastSuccess *time.Time, interval time.Duration, now time.Time) bool {
+	if lastSuccess == nil {
+		return true
+	}
+	return now.Sub(*lastSuccess) >= interval
+}
+
+func preserveConnectionSecrets(conn, old *entity.CasdoorConnection) {
+	conn.ClientSecretEnc = old.ClientSecretEnc
+	conn.CredentialConfigured = old.CredentialConfigured
+	conn.CredentialRotatedAt = old.CredentialRotatedAt
+	conn.Certificate = old.Certificate
+}
+
+func preserveConnectionSync(conn, old *entity.CasdoorConnection) {
+	conn.LastSyncStatus = old.LastSyncStatus
+	conn.LastSyncAt = old.LastSyncAt
+	conn.LastSyncError = old.LastSyncError
+	conn.LastSuccessAt = old.LastSuccessAt
+	conn.AppSyncStatus = old.AppSyncStatus
+	conn.AppSyncAt = old.AppSyncAt
+	conn.AppSuccessAt = old.AppSuccessAt
+	conn.AppSyncError = old.AppSyncError
+	conn.AppSyncCount = old.AppSyncCount
+	conn.AppSyncDurationMs = old.AppSyncDurationMs
+	conn.UserSyncStatus = old.UserSyncStatus
+	conn.UserSyncAt = old.UserSyncAt
+	conn.UserSuccessAt = old.UserSuccessAt
+	conn.UserSyncError = old.UserSyncError
+	conn.UserSyncCount = old.UserSyncCount
+	conn.UserSyncDurationMs = old.UserSyncDurationMs
+	conn.RelationSyncStatus = old.RelationSyncStatus
+	conn.RelationSyncAt = old.RelationSyncAt
+	conn.RelationSuccessAt = old.RelationSuccessAt
+	conn.RelationSyncError = old.RelationSyncError
+	conn.RelationConfirmedCount = old.RelationConfirmedCount
+	conn.RelationUnverifiedCount = old.RelationUnverifiedCount
+	conn.RelationFailedCount = old.RelationFailedCount
+	conn.RelationSyncDurationMs = old.RelationSyncDurationMs
 }
 
 func trimErr(err error) string {
@@ -284,145 +437,4 @@ func trimErr(err error) string {
 		return s[:250]
 	}
 	return s
-}
-
-// SyncDirectory 分页拉取应用/用户并按稳定 ID upsert；成功后把未出现的标为禁用/撤销。
-// 失败时由调用方保留旧快照并标过期，本函数不删除已有目录。
-func SyncDirectory(ctx context.Context, client casdoor.Client, conn *entity.CasdoorConnection, apps repository.CasdoorApp, users repository.CasdoorUser, auths repository.CasdoorAuth) error {
-	now := time.Now().UTC()
-	appIDs, err := syncApps(ctx, client, conn, apps, now)
-	if err != nil {
-		return err
-	}
-	userIDs, err := syncUsers(ctx, client, conn, users, now)
-	if err != nil {
-		return err
-	}
-	if err := apps.MarkMissingAbsent(ctx, conn.Id, appIDs, now); err != nil {
-		return err
-	}
-	if err := users.MarkMissingDisabled(ctx, conn.Id, userIDs, now); err != nil {
-		return err
-	}
-	return syncAuths(ctx, client, conn, appIDs, auths, now)
-}
-
-func syncApps(ctx context.Context, client casdoor.Client, conn *entity.CasdoorConnection, apps repository.CasdoorApp, now time.Time) ([]string, error) {
-	ids := make([]string, 0)
-	page := 1
-	pageSize := entity.DefaultSyncPageSize
-	got := 0
-	for {
-		items, total, err := client.ListApplications(ctx, page, pageSize)
-		if err != nil {
-			return nil, err
-		}
-		got += len(items)
-		for _, item := range items {
-			if item.Organization != "" && item.Organization != conn.Organization {
-				continue // 无权访问其他组织
-			}
-			ids = append(ids, item.SourceID)
-			row, err := apps.GetBySource(conn.Id, item.SourceID)
-			if err != nil {
-				return nil, err
-			}
-			if row == nil {
-				row = &entity.CasdoorApplicationSnapshot{ConnectionId: conn.Id, SourceId: item.SourceID}
-			}
-			row.Name = item.Name
-			row.DisplayName = item.DisplayName
-			row.Organization = conn.Organization
-			row.Enabled = boolToInt8(item.Enabled)
-			row.AppType = item.AppType
-			row.HomepageURL = item.HomepageURL
-			row.Present = 1
-			row.LastSyncAt = &now
-			if err := apps.Save(ctx, row); err != nil {
-				return nil, err
-			}
-		}
-		if len(items) == 0 || got >= total || page >= 10000 {
-			break
-		}
-		page++
-	}
-	return ids, nil
-}
-
-func syncUsers(ctx context.Context, client casdoor.Client, conn *entity.CasdoorConnection, users repository.CasdoorUser, now time.Time) ([]string, error) {
-	ids := make([]string, 0)
-	page := 1
-	pageSize := entity.DefaultSyncPageSize
-	got := 0
-	for {
-		items, total, err := client.ListUsers(ctx, page, pageSize)
-		if err != nil {
-			return nil, err
-		}
-		got += len(items)
-		for _, item := range items {
-			if item.Organization != "" && item.Organization != conn.Organization {
-				continue
-			}
-			ids = append(ids, item.SourceID)
-			row, err := users.GetBySource(conn.Id, item.SourceID)
-			if err != nil {
-				return nil, err
-			}
-			if row == nil {
-				row = &entity.CasdoorUserSnapshot{ConnectionId: conn.Id, SourceId: item.SourceID}
-			}
-			row.Username = item.Username
-			row.DisplayName = item.DisplayName
-			row.Organization = conn.Organization
-			row.Email = item.Email
-			row.Enabled = boolToInt8(item.Enabled)
-			row.Present = 1
-			row.LastSyncAt = &now
-			if err := users.Save(ctx, row); err != nil {
-				return nil, err
-			}
-		}
-		if len(items) == 0 || got >= total || page >= 10000 {
-			break
-		}
-		page++
-	}
-	return ids, nil
-}
-
-func syncAuths(ctx context.Context, client casdoor.Client, conn *entity.CasdoorConnection, appIDs []string, auths repository.CasdoorAuth, now time.Time) error {
-	keep := make([]repository.AuthKey, 0)
-	for _, appID := range appIDs {
-		userIDs, readable, err := client.GetApplicationUsers(ctx, appID)
-		if err != nil || !readable {
-			continue // 未核实，不写 confirmed，也不撤销
-		}
-		for _, uid := range userIDs {
-			keep = append(keep, repository.AuthKey{AppSourceId: appID, SubjectType: "user", SubjectSourceId: uid})
-			row, err := auths.GetByKey(conn.Id, appID, "user", uid)
-			if err != nil {
-				return err
-			}
-			if row == nil {
-				row = &entity.CasdoorAuthRelation{
-					ConnectionId: conn.Id, ApplicationSourceId: appID, SubjectType: "user", SubjectSourceId: uid,
-				}
-			}
-			row.Status = entity.AuthConfirmed
-			row.LastSyncAt = &now
-			if err := auths.Save(ctx, row); err != nil {
-				return err
-			}
-		}
-	}
-	return auths.MarkMissingRevoked(ctx, conn.Id, keep, now)
-}
-
-func boolToInt8(v bool) int8 {
-	if v {
-		return 1
-	}
-	return -1
 }

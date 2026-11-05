@@ -26,6 +26,7 @@ var En = map[i18n.MsgId]string{
 	ErrCasdoorOrgRequired:        "Casdoor organization is required",
 	ErrCasdoorCredentialRequired: "Casdoor server credential is not configured",
 	ErrCasdoorNotFound:           "Casdoor connection not found",
+	ErrCasdoorSyncBusy:           "this Casdoor connection is already syncing",
 	ErrIdentityStableIdRequired:  "identity links must use stable Casdoor and Octop IDs; names are not merged automatically",
 	ErrIdentityDuplicate:         "this identity link already exists",
 	ErrEventNoPermission:         "no permission to query activity logs of this instance",

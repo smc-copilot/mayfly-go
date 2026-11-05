@@ -213,6 +213,21 @@ func v1123() []*gormigrate.Migration {
 			},
 			Rollback: migrationx.NoopRollback,
 		},
+
+		{
+			// Casdoor 目录：独立应用 owner、分项同步状态、关系核实字段。
+			// AutoMigrate 对已有连接行按列比对补齐，新列为空/0，不改写 ClientSecretEnc 与旧快照。
+			ID: "v1.12.3-casdoor-directory-sync-fields",
+			Migrate: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(
+					&octopentity.CasdoorConnection{},
+					&octopentity.CasdoorApplicationSnapshot{},
+					&octopentity.CasdoorUserSnapshot{},
+					&octopentity.CasdoorAuthRelation{},
+				)
+			},
+			Rollback: migrationx.NoopRollback,
+		},
 	}
 }
 
@@ -235,4 +250,3 @@ var octopResources = []migrationx.ResourceDef{
 	migrationx.Resource(1750000019, 1750000005, "Octop001/Evnt0001/Ev00004/", 2, "menu.octopCollectRecollect", "octop:collect:recollect", 30000000, ""),
 	migrationx.Resource(1750000020, 1750000002, "Octop001/Ov00001/Ov00003/", 2, "menu.octopConfigSave", "octop:config:save", 20000000, ""),
 }
-

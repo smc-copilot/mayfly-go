@@ -137,8 +137,14 @@ func (r *casdoorAuthRepoImpl) GetByKey(connectionId uint64, appSourceId, subject
 	return &row, nil
 }
 
-func (r *casdoorAuthRepoImpl) MarkMissingRevoked(ctx context.Context, connectionId uint64, keepKeys []repository.AuthKey, now time.Time) error {
-	rows, err := r.SelectByCond(model.NewCond().Eq("connection_id", connectionId).Eq("status", entity.AuthConfirmed))
+func (r *casdoorAuthRepoImpl) MarkMissingRevoked(ctx context.Context, connectionId uint64, verifiedAppIDs []string, keepKeys []repository.AuthKey, now time.Time) error {
+	if len(verifiedAppIDs) == 0 {
+		return nil
+	}
+	rows, err := r.SelectByCond(model.NewCond().
+		Eq("connection_id", connectionId).
+		Eq("status", entity.AuthConfirmed).
+		In("application_source_id", verifiedAppIDs))
 	if err != nil {
 		return err
 	}
@@ -146,7 +152,11 @@ func (r *casdoorAuthRepoImpl) MarkMissingRevoked(ctx context.Context, connection
 	for _, k := range keepKeys {
 		keep[k.AppSourceId+"|"+k.SubjectType+"|"+k.SubjectSourceId] = struct{}{}
 	}
+	verified := toSet(verifiedAppIDs)
 	for _, row := range rows {
+		if _, ok := verified[row.ApplicationSourceId]; !ok {
+			continue
+		}
 		key := row.ApplicationSourceId + "|" + row.SubjectType + "|" + row.SubjectSourceId
 		if _, ok := keep[key]; ok {
 			continue

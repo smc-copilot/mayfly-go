@@ -88,11 +88,37 @@ export interface CollectorCheckpoint {
     coverage: string;
 }
 
+export interface CategorySyncState {
+    name: string;
+    status: string;
+    error: string;
+    count: number;
+    durationMs: number;
+    attemptAt?: string;
+    successAt?: string;
+    confirmed?: number;
+    unverified?: number;
+    failed?: number;
+}
+
+export interface CasdoorTestResult {
+    service: ProbeItem;
+    apps: ProbeItem;
+    users: ProbeItem;
+}
+
+export interface CasdoorSyncResult {
+    apps: CategorySyncState;
+    users: CategorySyncState;
+    relations: CategorySyncState;
+}
+
 export interface CasdoorConnection {
     id: number;
     name: string;
     serverUrl: string;
     organization: string;
+    appOwner: string;
     clientId: string;
     timeoutSec: number;
     syncIntervalSec: number;
@@ -103,6 +129,26 @@ export interface CasdoorConnection {
     lastSyncAt?: string;
     lastSyncError: string;
     lastSuccessAt?: string;
+    appSyncStatus: string;
+    appSyncAt?: string;
+    appSuccessAt?: string;
+    appSyncError: string;
+    appSyncCount: number;
+    appSyncDurationMs: number;
+    userSyncStatus: string;
+    userSyncAt?: string;
+    userSuccessAt?: string;
+    userSyncError: string;
+    userSyncCount: number;
+    userSyncDurationMs: number;
+    relationSyncStatus: string;
+    relationSyncAt?: string;
+    relationSuccessAt?: string;
+    relationSyncError: string;
+    relationConfirmedCount: number;
+    relationUnverifiedCount: number;
+    relationFailedCount: number;
+    relationSyncDurationMs: number;
 }
 
 export interface CasdoorApp {
@@ -112,10 +158,12 @@ export interface CasdoorApp {
     name: string;
     displayName: string;
     organization: string;
+    appOwner: string;
     enabled: number;
     appType: string;
     homepageUrl: string;
     present: number;
+    relationStatus: string;
     lastSyncAt?: string;
 }
 
@@ -138,6 +186,8 @@ export interface CasdoorAuth {
     subjectType: string;
     subjectSourceId: string;
     status: string;
+    lastSyncAt?: string;
+    lastConfirmedAt?: string;
 }
 
 export interface IdentityLink {

@@ -26,6 +26,7 @@ var Zh_CN = map[i18n.MsgId]string{
 	ErrCasdoorOrgRequired:        "Casdoor 组织范围不能为空",
 	ErrCasdoorCredentialRequired: "Casdoor 服务端凭据未配置",
 	ErrCasdoorNotFound:           "Casdoor 连接不存在",
+	ErrCasdoorSyncBusy:           "该连接正在同步，请稍后重试",
 	ErrIdentityStableIdRequired:  "身份关联必须使用 Casdoor 稳定 ID 与 Octop 用户 ID，不能按名称自动合并",
 	ErrIdentityDuplicate:         "该身份关联已存在",
 	ErrEventNoPermission:         "无权查询该实例的活动日志",

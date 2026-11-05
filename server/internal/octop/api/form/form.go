@@ -3,27 +3,27 @@ package form
 import "mayfly-go/internal/octop/domain/entity"
 
 type InstanceForm struct {
-	Id               uint64 `json:"id"`
-	Name             string `json:"name"`
-	Center           string `json:"center"`
-	Remark           string `json:"remark"`
-	MachineId        uint64 `json:"machineId"`
-	ApiURL           string `json:"apiUrl"`
-	StartMode        string `json:"startMode"`
-	SystemdUnit      string `json:"systemdUnit"`
-	ProcessMatch     string `json:"processMatch"`
-	DbId             uint64 `json:"dbId"`
-	DbName           string `json:"dbName"`
-	CollectEnabled   int8   `json:"collectEnabled"`
-	Maintenance      int8   `json:"maintenance"`
-	SampleIntervalSec int  `json:"sampleIntervalSec"`
-	CpuWarn          int    `json:"cpuWarn"`
-	CpuCrit          int    `json:"cpuCrit"`
-	MemWarn          int    `json:"memWarn"`
-	MemCrit          int    `json:"memCrit"`
-	DiskWarn         int    `json:"diskWarn"`
-	DiskCrit         int    `json:"diskCrit"`
-	HttpFailThreshold int   `json:"httpFailThreshold"`
+	Id                uint64 `json:"id"`
+	Name              string `json:"name"`
+	Center            string `json:"center"`
+	Remark            string `json:"remark"`
+	MachineId         uint64 `json:"machineId"`
+	ApiURL            string `json:"apiUrl"`
+	StartMode         string `json:"startMode"`
+	SystemdUnit       string `json:"systemdUnit"`
+	ProcessMatch      string `json:"processMatch"`
+	DbId              uint64 `json:"dbId"`
+	DbName            string `json:"dbName"`
+	CollectEnabled    int8   `json:"collectEnabled"`
+	Maintenance       int8   `json:"maintenance"`
+	SampleIntervalSec int    `json:"sampleIntervalSec"`
+	CpuWarn           int    `json:"cpuWarn"`
+	CpuCrit           int    `json:"cpuCrit"`
+	MemWarn           int    `json:"memWarn"`
+	MemCrit           int    `json:"memCrit"`
+	DiskWarn          int    `json:"diskWarn"`
+	DiskCrit          int    `json:"diskCrit"`
+	HttpFailThreshold int    `json:"httpFailThreshold"`
 }
 
 func (f *InstanceForm) ToEntity() *entity.OctopInstance {
@@ -43,6 +43,7 @@ type CasdoorForm struct {
 	Name            string `json:"name"`
 	ServerURL       string `json:"serverUrl"`
 	Organization    string `json:"organization"`
+	AppOwner        string `json:"appOwner"`
 	ClientId        string `json:"clientId"`
 	ClientSecret    string `json:"clientSecret"`
 	TimeoutSec      int    `json:"timeoutSec"`
@@ -53,14 +54,14 @@ type CasdoorForm struct {
 func (f *CasdoorForm) ToEntity() *entity.CasdoorConnection {
 	return &entity.CasdoorConnection{
 		Name: f.Name, ServerURL: f.ServerURL, Organization: f.Organization,
-		ClientId: f.ClientId, TimeoutSec: f.TimeoutSec,
+		AppOwner: f.AppOwner, ClientId: f.ClientId, TimeoutSec: f.TimeoutSec,
 		SyncIntervalSec: f.SyncIntervalSec, TLSVerify: f.TLSVerify,
 	}
 }
 
 type BindAppForm struct {
-	InstanceId     uint64 `json:"instanceId"`
-	AppSnapshotId  uint64 `json:"appSnapshotId"`
+	InstanceId    uint64 `json:"instanceId"`
+	AppSnapshotId uint64 `json:"appSnapshotId"`
 }
 
 type IdentityLinkForm struct {

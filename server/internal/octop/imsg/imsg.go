@@ -34,6 +34,7 @@ const (
 	ErrCasdoorOrgRequired
 	ErrCasdoorCredentialRequired
 	ErrCasdoorNotFound
+	ErrCasdoorSyncBusy
 	ErrIdentityStableIdRequired
 	ErrIdentityDuplicate
 	ErrEventNoPermission

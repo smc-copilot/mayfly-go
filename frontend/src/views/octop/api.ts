@@ -4,6 +4,8 @@ import type {
     CasdoorApp,
     CasdoorAuth,
     CasdoorConnection,
+    CasdoorSyncResult,
+    CasdoorTestResult,
     CasdoorUser,
     ConnTestResult,
     EventPage,
@@ -32,9 +34,9 @@ export const octopInstanceApi = {
 
 export const octopCasdoorApi = {
     connections: Api.newGet<CasdoorConnection[]>('/octop/casdoor/connections'),
-    test: Api.newPost<Record<string, ProbePair>>('/octop/casdoor/connections/test'),
+    test: Api.newPost<CasdoorTestResult>('/octop/casdoor/connections/test'),
     save: Api.newPost<number>('/octop/casdoor/connections'),
-    sync: Api.newPost<void>('/octop/casdoor/connections/{id}/sync'),
+    sync: Api.newPost<CasdoorSyncResult>('/octop/casdoor/connections/{id}/sync'),
     apps: Api.newGet<PageResult<CasdoorApp>>('/octop/casdoor/apps'),
     users: Api.newGet<PageResult<CasdoorUser>>('/octop/casdoor/users'),
     auths: Api.newGet<CasdoorAuth[]>('/octop/casdoor/auths'),
@@ -49,5 +51,3 @@ export const octopEventApi = {
     summary: Api.newGet<EventSummary[]>('/octop/events/summary'),
     recollect: Api.newPost<void>('/octop/events/recollect'),
 };
-
-type ProbePair = { status: string; reason: string };

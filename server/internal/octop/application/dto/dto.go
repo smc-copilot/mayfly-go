@@ -12,34 +12,34 @@ type SaveInstance struct {
 }
 
 type ProbeItem struct {
-	Name    string `json:"name"`
-	Status  string `json:"status"`
-	Reason  string `json:"reason"`
-	At      *time.Time `json:"at,omitempty"`
+	Name   string     `json:"name"`
+	Status string     `json:"status"`
+	Reason string     `json:"reason"`
+	At     *time.Time `json:"at,omitempty"`
 }
 
 type InstanceOverview struct {
 	*entity.OctopInstance
-	MachineName  string      `json:"machineName"`
-	MachineIp    string      `json:"machineIp"`
-	MachineOnline string     `json:"machineOnline"`
-	OctopProcess  string     `json:"octopProcess"`
-	HttpHealth    string     `json:"httpHealth"`
-	PgConnect     string     `json:"pgConnect"`
-	HealthStatus  string     `json:"healthStatus"`
-	HealthReason  string     `json:"healthReason"`
-	LastCollectAt *time.Time `json:"lastCollectAt"`
-	CasdoorAppName string    `json:"casdoorAppName"`
+	MachineName    string     `json:"machineName"`
+	MachineIp      string     `json:"machineIp"`
+	MachineOnline  string     `json:"machineOnline"`
+	OctopProcess   string     `json:"octopProcess"`
+	HttpHealth     string     `json:"httpHealth"`
+	PgConnect      string     `json:"pgConnect"`
+	HealthStatus   string     `json:"healthStatus"`
+	HealthReason   string     `json:"healthReason"`
+	LastCollectAt  *time.Time `json:"lastCollectAt"`
+	CasdoorAppName string     `json:"casdoorAppName"`
 }
 
 type InstanceDetail struct {
-	Overview     *InstanceOverview          `json:"overview"`
-	Probes       []ProbeItem                `json:"probes"`
-	Thresholds   *entity.OctopInstance      `json:"thresholds"`
-	CanRestart   bool                       `json:"canRestart"`
-	RestartHint  string                     `json:"restartHint"`
+	Overview     *InstanceOverview             `json:"overview"`
+	Probes       []ProbeItem                   `json:"probes"`
+	Thresholds   *entity.OctopInstance         `json:"thresholds"`
+	CanRestart   bool                          `json:"canRestart"`
+	RestartHint  string                        `json:"restartHint"`
 	Checkpoints  []*entity.CollectorCheckpoint `json:"checkpoints"`
-	LatestSample *entity.OctopMetricSample  `json:"latestSample"`
+	LatestSample *entity.OctopMetricSample     `json:"latestSample"`
 }
 
 type ConnTestResult struct {
@@ -58,26 +58,46 @@ type RestartResult struct {
 }
 
 type CasdoorTestResult struct {
-	Apps  ProbeItem `json:"apps"`
-	Users ProbeItem `json:"users"`
+	Service ProbeItem `json:"service"`
+	Apps    ProbeItem `json:"apps"`
+	Users   ProbeItem `json:"users"`
+}
+
+type CategorySyncResult struct {
+	Name       string     `json:"name"`
+	Status     string     `json:"status"`
+	Error      string     `json:"error"`
+	Count      int        `json:"count"`
+	DurationMs int64      `json:"durationMs"`
+	AttemptAt  *time.Time `json:"attemptAt,omitempty"`
+	SuccessAt  *time.Time `json:"successAt,omitempty"`
+	Confirmed  int        `json:"confirmed,omitempty"`
+	Unverified int        `json:"unverified,omitempty"`
+	Failed     int        `json:"failed,omitempty"`
+}
+
+type CasdoorSyncResult struct {
+	Apps      CategorySyncResult `json:"apps"`
+	Users     CategorySyncResult `json:"users"`
+	Relations CategorySyncResult `json:"relations"`
 }
 
 type EventGap struct {
-	InstanceId   uint64 `json:"instanceId"`
-	SourceTable  string `json:"sourceTable"`
-	Coverage     string `json:"coverage"`
-	Reason       string `json:"reason"`
-	LastRecordId string `json:"lastRecordId"`
-	LastSuccessAt *time.Time `json:"lastSuccessAt"`
+	InstanceId     uint64     `json:"instanceId"`
+	SourceTable    string     `json:"sourceTable"`
+	Coverage       string     `json:"coverage"`
+	Reason         string     `json:"reason"`
+	LastRecordId   string     `json:"lastRecordId"`
+	LastSuccessAt  *time.Time `json:"lastSuccessAt"`
 	RetentionStart *time.Time `json:"retentionStart"`
 }
 
 type EventPage struct {
-	Total int64                 `json:"total"`
-	List  []*entity.OctopEvent  `json:"list"`
-	PageNum  int                `json:"pageNum"`
-	PageSize int                `json:"pageSize"`
-	Gaps  []*EventGap           `json:"gaps"`
+	Total    int64                `json:"total"`
+	List     []*entity.OctopEvent `json:"list"`
+	PageNum  int                  `json:"pageNum"`
+	PageSize int                  `json:"pageSize"`
+	Gaps     []*EventGap          `json:"gaps"`
 }
 
 type EventSummary = repository.EventSummary

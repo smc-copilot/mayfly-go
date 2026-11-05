@@ -59,7 +59,9 @@ func (c *Casdoor) Save(rc *req.Ctx) {
 func (c *Casdoor) Sync(rc *req.Ctx) {
 	id := cast.ToUint64(rc.PathParam("id"))
 	rc.ReqParam = id
-	biz.ErrIsNil(c.casdoorApp.Sync(rc.MetaCtx, id))
+	res, err := c.casdoorApp.Sync(rc.MetaCtx, id)
+	biz.ErrIsNil(err)
+	rc.ResData = res
 }
 
 func (c *Casdoor) Apps(rc *req.Ctx) {

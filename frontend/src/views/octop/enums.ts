@@ -31,14 +31,19 @@ export const OctopEventCategoryEnum = {
 export const OctopAuthStatusEnum = {
     Confirmed: EnumValue.of('confirmed', 'octop.confirmed').tagTypeSuccess(),
     Unverified: EnumValue.of('unverified', 'octop.unverified').tagTypeWarning(),
+    Unsupported: EnumValue.of('unsupported', 'octop.relationUnsupported').tagTypeInfo(),
     Revoked: EnumValue.of('revoked', 'octop.revoked').tagTypeDanger(),
 };
 
 export const OctopSyncStatusEnum = {
-    Never: EnumValue.of('never', 'octop.neverCollected').tagTypeInfo(),
-    Ok: EnumValue.of('ok', 'octop.normal').tagTypeSuccess(),
-    Expired: EnumValue.of('expired', 'octop.syncExpired').tagTypeWarning(),
-    Running: EnumValue.of('running', 'octop.syncStatus').tagTypeInfo(),
+    Never: EnumValue.of('never', 'octop.syncNever').tagTypeInfo(),
+    Syncing: EnumValue.of('syncing', 'octop.syncing').tagTypeInfo(),
+    Success: EnumValue.of('success', 'octop.syncSuccess').tagTypeSuccess(),
+    Failed: EnumValue.of('failed', 'octop.syncFailed').tagTypeDanger(),
+    Stale: EnumValue.of('stale', 'octop.syncStale').tagTypeWarning(),
+    Ok: EnumValue.of('ok', 'octop.syncSuccess').tagTypeSuccess(),
+    Expired: EnumValue.of('expired', 'octop.syncStale').tagTypeWarning(),
+    Running: EnumValue.of('running', 'octop.syncing').tagTypeInfo(),
 };
 
 export const OctopGapEnum = {

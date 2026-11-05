@@ -24,20 +24,30 @@ const (
 	ProbeSkipped     = "skipped"
 )
 
-// 目录同步状态
+// 目录同步状态（PRD：未同步 / 同步中 / 成功 / 失败 / 上次成功数据已过期）
 const (
 	SyncStatusNever   = "never"
+	SyncStatusSyncing = "syncing"
+	SyncStatusSuccess = "success"
+	SyncStatusFailed  = "failed"
+	SyncStatusStale   = "stale"
+
+	// 兼容已有行：历史写入 ok/expired/running，展示时按新口径映射
 	SyncStatusOK      = "ok"
-	SyncStatusExpired = "expired" // 上次成功快照仍在，但本次失败
+	SyncStatusExpired = "expired"
 	SyncStatusRunning = "running"
 )
 
 // 授权关系核实状态
 const (
 	AuthConfirmed   = "confirmed"   // Casdoor 实际返回且可读
-	AuthUnverified  = "unverified"  // 无法判定
-	AuthRevoked     = "revoked"     // 同步后确认已撤销
+	AuthUnverified  = "unverified"  // 无法判定，保留上次已确认快照
+	AuthUnsupported = "unsupported" // 无可靠关系接口，暂不支持自动确认
+	AuthRevoked     = "revoked"     // 本次完整读取后确认已撤销
 )
+
+// CasdoorSyncPollInterval 自动同步调度精度：cron 约每 30 分钟检查到期连接
+const CasdoorSyncPollInterval = 30 * 60 // seconds
 
 // 身份关联状态
 const (
@@ -55,9 +65,9 @@ const (
 
 // 源表名（与 Octop 部署版默认 schema 对齐，可按实例覆盖）
 const (
-	SourceTableAuditLog          = "audit_log"
-	SourceTableUsageLog          = "usage_log"
-	SourceTableTrajectoryEvents  = "trajectory_events"
+	SourceTableAuditLog         = "audit_log"
+	SourceTableUsageLog         = "usage_log"
+	SourceTableTrajectoryEvents = "trajectory_events"
 )
 
 // 采集运行状态
@@ -70,26 +80,26 @@ const (
 
 // 事件查询缺口原因（四种状态不可混淆）
 const (
-	GapNone            = ""            // 该时段确无事件
-	GapCollectFail     = "collect_fail"
-	GapSourcePurged    = "source_purged"
-	GapUnsupported     = "unsupported"
+	GapNone         = "" // 该时段确无事件
+	GapCollectFail  = "collect_fail"
+	GapSourcePurged = "source_purged"
+	GapUnsupported  = "unsupported"
 )
 
 const (
-	DefaultSampleIntervalSec   = 120
-	DefaultEventRetainDays     = 90
-	DefaultCollectConcurrency  = 3
-	DefaultCollectTimeoutSec   = 45
-	DefaultHttpFailThreshold   = 3
-	DefaultCpuWarn             = 85
-	DefaultCpuCrit             = 95
-	DefaultMemWarn             = 85
-	DefaultMemCrit             = 95
-	DefaultDiskWarn            = 85
-	DefaultDiskCrit            = 95
-	DefaultSyncPageSize        = 100
-	DefaultCollectBatchSize    = 500
-	DefaultBackoffSec          = 30
-	DefaultMaxBackoffSec       = 300
+	DefaultSampleIntervalSec  = 120
+	DefaultEventRetainDays    = 90
+	DefaultCollectConcurrency = 3
+	DefaultCollectTimeoutSec  = 45
+	DefaultHttpFailThreshold  = 3
+	DefaultCpuWarn            = 85
+	DefaultCpuCrit            = 95
+	DefaultMemWarn            = 85
+	DefaultMemCrit            = 95
+	DefaultDiskWarn           = 85
+	DefaultDiskCrit           = 95
+	DefaultSyncPageSize       = 100
+	DefaultCollectBatchSize   = 500
+	DefaultBackoffSec         = 30
+	DefaultMaxBackoffSec      = 300
 )

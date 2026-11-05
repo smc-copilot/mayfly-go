@@ -33,7 +33,7 @@ type CasdoorUser interface {
 type CasdoorAuth interface {
 	base.Repo[*entity.CasdoorAuthRelation]
 	GetByKey(connectionId uint64, appSourceId, subjectType, subjectSourceId string) (*entity.CasdoorAuthRelation, error)
-	MarkMissingRevoked(ctx context.Context, connectionId uint64, keepKeys []AuthKey, now time.Time) error
+	MarkMissingRevoked(ctx context.Context, connectionId uint64, verifiedAppIDs []string, keepKeys []AuthKey, now time.Time) error
 }
 
 type AuthKey struct {
@@ -58,12 +58,12 @@ type Event interface {
 }
 
 type EventSummary struct {
-	GroupKey     string `json:"groupKey"`
-	DisplayName  string `json:"displayName"`
-	Total        int64  `json:"total"`
-	FailCount    int64  `json:"failCount"`
-	InputTokens  int64  `json:"inputTokens"`
-	OutputTokens int64  `json:"outputTokens"`
+	GroupKey     string     `json:"groupKey"`
+	DisplayName  string     `json:"displayName"`
+	Total        int64      `json:"total"`
+	FailCount    int64      `json:"failCount"`
+	InputTokens  int64      `json:"inputTokens"`
+	OutputTokens int64      `json:"outputTokens"`
 	LastActivity *time.Time `json:"lastActivity"`
 }
 
