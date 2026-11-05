@@ -2,6 +2,7 @@ package v112
 
 import (
 	dbentity "mayfly-go/internal/db/domain/entity"
+	octopentity "mayfly-go/internal/octop/domain/entity"
 	"mayfly-go/migration/migrations/migrationx"
 
 	"github.com/go-gormigrate/gormigrate/v2"
@@ -180,5 +181,58 @@ func v1123() []*gormigrate.Migration {
 			},
 			Rollback: migrationx.NoopRollback,
 		},
+
+		{
+			// Octop 运维、Casdoor 目录与业务事件采集表。
+			// AutoMigrate 对已有表按列比对补齐、对全新库直接建出目标结构，天然幂等。
+			ID: "v1.12.3-octop-tables",
+			Migrate: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(
+					&octopentity.OctopInstance{},
+					&octopentity.CasdoorConnection{},
+					&octopentity.CasdoorApplicationSnapshot{},
+					&octopentity.CasdoorUserSnapshot{},
+					&octopentity.CasdoorAuthRelation{},
+					&octopentity.OctopIdentityLink{},
+					&octopentity.OctopEvent{},
+					&octopentity.CollectorCheckpoint{},
+					&octopentity.CollectorRun{},
+					&octopentity.OctopMetricSample{},
+					&octopentity.OctopSettings{},
+				)
+			},
+			Rollback: migrationx.NoopRollback,
+		},
+
+		{
+			// Octop 管理菜单与权限码。权限码 fail-closed：路由声明了 RequiredPermissionCode
+			// 就必须同时写入 t_sys_resource，否则除已授权角色外全员 403。
+			ID: "v1.12.3-octop-resources",
+			Migrate: func(tx *gorm.DB) error {
+				return migrationx.InsertResourcesWithRole(tx, octopResources)
+			},
+			Rollback: migrationx.NoopRollback,
+		},
 	}
 }
+
+var octopResources = []migrationx.ResourceDef{
+	migrationx.Resource(1750000001, 0, "Octop001/", 1, "menu.octop", "/octop", 49999990, `{"icon":"Monitor","isKeepAlive":true,"routeName":"Octop"}`),
+	migrationx.Resource(1750000002, 1750000001, "Octop001/Ov00001/", 1, "menu.octopOverview", "octop-overview", 10000000, `{"component":"octop/overview/Overview","icon":"DataBoard","isKeepAlive":true,"routeName":"OctopOverview"}`),
+	migrationx.Resource(1750000003, 1750000001, "Octop001/Inst0001/", 1, "menu.octopInstance", "octop-instance", 20000000, `{"component":"octop/instance/InstanceDetail","icon":"OfficeBuilding","isKeepAlive":true,"routeName":"OctopInstanceDetail"}`),
+	migrationx.Resource(1750000004, 1750000001, "Octop001/Casd0001/", 1, "menu.octopCasdoor", "octop-casdoor", 30000000, `{"component":"octop/casdoor/CasdoorDirectory","icon":"User","isKeepAlive":true,"routeName":"OctopCasdoor"}`),
+	migrationx.Resource(1750000005, 1750000001, "Octop001/Evnt0001/", 1, "menu.octopEvent", "octop-event", 40000000, `{"component":"octop/event/EventList","icon":"Document","isKeepAlive":true,"routeName":"OctopEvent"}`),
+
+	migrationx.Resource(1750000010, 1750000002, "Octop001/Ov00001/Ov00002/", 2, "menu.octopOverviewBase", "octop:overview:base", 10000000, ""),
+	migrationx.Resource(1750000011, 1750000003, "Octop001/Inst0001/In00002/", 2, "menu.octopInstanceBase", "octop:instance:base", 10000000, ""),
+	migrationx.Resource(1750000012, 1750000003, "Octop001/Inst0001/In00003/", 2, "menu.octopInstanceSave", "octop:instance:save", 20000000, ""),
+	migrationx.Resource(1750000013, 1750000003, "Octop001/Inst0001/In00004/", 2, "menu.octopInstanceDel", "octop:instance:del", 30000000, ""),
+	migrationx.Resource(1750000014, 1750000003, "Octop001/Inst0001/In00005/", 2, "menu.octopInstanceRestart", "octop:instance:restart", 40000000, ""),
+	migrationx.Resource(1750000015, 1750000004, "Octop001/Casd0001/Ca00002/", 2, "menu.octopCasdoorBase", "octop:casdoor:base", 10000000, ""),
+	migrationx.Resource(1750000016, 1750000004, "Octop001/Casd0001/Ca00003/", 2, "menu.octopCasdoorSave", "octop:casdoor:save", 20000000, ""),
+	migrationx.Resource(1750000017, 1750000005, "Octop001/Evnt0001/Ev00002/", 2, "menu.octopEventBase", "octop:event:base", 10000000, ""),
+	migrationx.Resource(1750000018, 1750000005, "Octop001/Evnt0001/Ev00003/", 2, "menu.octopEventExport", "octop:event:export", 20000000, ""),
+	migrationx.Resource(1750000019, 1750000005, "Octop001/Evnt0001/Ev00004/", 2, "menu.octopCollectRecollect", "octop:collect:recollect", 30000000, ""),
+	migrationx.Resource(1750000020, 1750000002, "Octop001/Ov00001/Ov00003/", 2, "menu.octopConfigSave", "octop:config:save", 20000000, ""),
+}
+

@@ -39,6 +39,17 @@ func TestV1123MigrationIdsAreUniqueAndPrefixed(t *testing.T) {
 	}
 }
 
+func TestV1123ContainsOctopTables(t *testing.T) {
+	const wantID = "v1.12.3-octop-tables"
+	for _, m := range v1123() {
+		if m.ID == wantID {
+			require.NotNil(t, m.Migrate)
+			return
+		}
+	}
+	t.Fatalf("v1.12.3 批次缺少 %s 迁移", wantID)
+}
+
 // TestV1123ContainsDbInstanceTlsMaterial 钉住本批次承载的 TLS 材料列迁移。
 //
 // 该列是 DB 实例 TLS 的存储前提：缺了它，保存带证书的实例会因未知列失败，
