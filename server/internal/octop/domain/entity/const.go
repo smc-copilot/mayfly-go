@@ -103,3 +103,35 @@ const (
 	DefaultBackoffSec         = 30
 	DefaultMaxBackoffSec      = 300
 )
+
+// Casdoor 应用与 Octop 实例的 OIDC 回调对照结果
+const (
+	BindMatchNone       = "none"       // 回调地址齐全但没有实例对上
+	BindMatchUnique     = "unique"     // 恰好一个实例
+	BindMatchAmbiguous  = "ambiguous"  // 多回调或多实例候选
+	BindMatchUnverified = "unverified" // 无可靠回调字段，未核实
+)
+
+const (
+	MatchBasisCallbackURL = "callbackUrl"
+	MatchBasisApiURL      = "apiUrl"
+)
+
+// Octop 用户列表读取状态（不是用户账号状态）
+const (
+	UserListOK           = "ok"
+	UserListUnconfigured = "unconfigured"
+	UserListForbidden    = "forbidden"
+	UserListUnreachable  = "unreachable"
+	UserListUnexpected   = "unexpected"
+)
+
+const (
+	UserStatusEnabled  = "enabled"
+	UserStatusDisabled = "disabled"
+	UserStatusUnknown  = "unknown"
+)
+
+const (
+	UserFilterModeLocalFull = "local_full_list"
+)

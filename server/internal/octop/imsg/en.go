@@ -32,4 +32,7 @@ var En = map[i18n.MsgId]string{
 	ErrEventNoPermission:         "no permission to query activity logs of this instance",
 	ErrExportNoPermission:        "no permission to export activity logs",
 	ErrCollectUnsupported:        "this category is unsupported or has no read-only grant on the instance",
+	ErrBindOverwriteRequired:     "this instance already has a Casdoor app binding; confirm overwrite explicitly",
+	ErrBindAppNotFound:           "Casdoor application snapshot not found",
+	ErrOctopUserInstanceRequired: "select an Octop instance you can access",
 }

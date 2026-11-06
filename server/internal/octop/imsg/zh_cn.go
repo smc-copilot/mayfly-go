@@ -32,4 +32,7 @@ var Zh_CN = map[i18n.MsgId]string{
 	ErrEventNoPermission:         "无权查询该实例的活动日志",
 	ErrExportNoPermission:        "无权导出活动日志",
 	ErrCollectUnsupported:        "该类别在当前实例不受支持或无只读权限",
+	ErrBindOverwriteRequired:     "该实例已有 Casdoor 应用绑定，需管理员明确确认后才会覆盖",
+	ErrBindAppNotFound:           "Casdoor 应用快照不存在",
+	ErrOctopUserInstanceRequired: "必须先选择有权限的 Octop 实例",
 }

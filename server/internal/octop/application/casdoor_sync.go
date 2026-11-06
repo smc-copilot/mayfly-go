@@ -177,6 +177,7 @@ func upsertApp(ctx context.Context, apps repository.CasdoorApp, conn *entity.Cas
 	row.Enabled = knownBoolToInt8(item.Enabled, item.EnabledKnown)
 	row.AppType = item.AppType
 	row.HomepageURL = item.HomepageURL
+	row.RedirectURIs = encodeRedirectURIs(item.RedirectURIs)
 	row.Present = 1
 	row.LastSyncAt = &now
 	return apps.Save(ctx, row)

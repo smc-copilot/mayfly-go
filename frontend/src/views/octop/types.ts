@@ -13,6 +13,8 @@ export interface OctopInstance {
     remark: string;
     machineId: number;
     apiUrl: string;
+    callbackUrl?: string;
+    apiTokenConfigured?: number;
     startMode: string;
     systemdUnit: string;
     processMatch: string;
@@ -162,6 +164,7 @@ export interface CasdoorApp {
     enabled: number;
     appType: string;
     homepageUrl: string;
+    redirectUris: string;
     present: number;
     relationStatus: string;
     lastSyncAt?: string;
@@ -255,6 +258,55 @@ export interface EventSummary {
     inputTokens: number;
     outputTokens: number;
     lastActivity?: string;
+}
+
+export interface ExistingBind {
+    instanceId: number;
+    instanceName: string;
+    instanceCode: string;
+}
+
+export interface BindCandidate {
+    instanceId: number;
+    instanceName: string;
+    instanceCode: string;
+    callbackUrl: string;
+    apiUrl: string;
+    matchedRedirectUri: string;
+    matchBasis: string;
+    normalizedCallback: string;
+    normalizedRedirect: string;
+    currentAppSnapshotId: number;
+}
+
+export interface AppBindMatch {
+    appSnapshotId: number;
+    sourceId: string;
+    name: string;
+    displayName: string;
+    redirectUris: string[];
+    existing: ExistingBind[];
+    matchStatus: string;
+    candidates: BindCandidate[];
+}
+
+export interface OctopUser {
+    id: string;
+    username: string;
+    displayName: string;
+    email: string;
+    status: string;
+}
+
+export interface OctopUserPage {
+    total: number;
+    list: OctopUser[];
+    pageNum: number;
+    pageSize: number;
+    status: string;
+    message: string;
+    filterMode: string;
+    filterNote: string;
 }
 
 export interface OctopSettings {

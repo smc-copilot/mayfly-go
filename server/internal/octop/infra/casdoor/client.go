@@ -42,6 +42,7 @@ type Application struct {
 	EnabledKnown bool
 	AppType      string
 	HomepageURL  string
+	RedirectURIs []string
 }
 
 type User struct {
@@ -145,6 +146,7 @@ func (c *httpClient) ListApplications(ctx context.Context, page, pageSize int) (
 			Owner:        str(item, "owner"),
 			AppType:      firstNonEmpty(str(item, "type"), str(item, "category")),
 			HomepageURL:  firstNonEmpty(str(item, "homepageUrl"), str(item, "url")),
+			RedirectURIs: oidcRedirectURIs(item),
 		}
 		if enabled, ok := appEnabled(item); ok {
 			app.Enabled = enabled
@@ -375,6 +377,50 @@ func firstNonEmpty(vs ...string) string {
 		}
 	}
 	return ""
+}
+
+// oidcRedirectURIs 只取 OIDC redirect/callback URL 白名单，忽略 clientSecret 及其它密钥字段。
+func oidcRedirectURIs(item map[string]any) []string {
+	for _, key := range []string{"redirectUris", "redirect_uris"} {
+		ids, ok := flattenIDs(item[key])
+		if !ok {
+			if s := strings.TrimSpace(str(item, key)); s != "" {
+				ids = splitURIList(s)
+				ok = true
+			}
+		}
+		if !ok {
+			continue
+		}
+		out := make([]string, 0, len(ids))
+		seen := map[string]struct{}{}
+		for _, id := range ids {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			if _, dup := seen[id]; dup {
+				continue
+			}
+			seen[id] = struct{}{}
+			out = append(out, id)
+		}
+		return out
+	}
+	return nil
+}
+
+func splitURIList(s string) []string {
+	s = strings.ReplaceAll(s, "\n", ",")
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func flattenIDs(raw any) ([]string, bool) {

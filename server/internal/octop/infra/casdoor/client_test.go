@@ -22,7 +22,7 @@ func TestListApplicationsSendsOrganizationAndOwner(t *testing.T) {
 		require.Equal(t, "cid", user)
 		require.Equal(t, "csecret", pass)
 		writeList(w, []map[string]any{
-			{"name": "portal", "displayName": "Portal", "organization": "acme", "owner": "built-in", "disableSignin": false},
+			{"name": "portal", "displayName": "Portal", "organization": "acme", "owner": "built-in", "disableSignin": false, "redirectUris": []string{"https://octop.example.com/api/auth/oidc/callback"}, "clientSecret": "app-secret-must-not-store"},
 			{"name": "ops", "displayName": "Ops", "organization": "acme", "owner": "built-in", "disableSignin": true},
 			{"name": "other", "organization": "other-org", "owner": "built-in"},
 		}, 3)
@@ -45,6 +45,11 @@ func TestListApplicationsSendsOrganizationAndOwner(t *testing.T) {
 	require.True(t, apps[1].EnabledKnown)
 	require.False(t, apps[1].Enabled)
 	require.False(t, apps[2].EnabledKnown)
+	require.Equal(t, []string{"https://octop.example.com/api/auth/oidc/callback"}, apps[0].RedirectURIs)
+	raw, err := json.Marshal(apps[0])
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "app-secret-must-not-store")
+	require.NotContains(t, string(raw), "clientSecret")
 }
 
 func TestListApplicationsDoesNotPutOrgInOwner(t *testing.T) {

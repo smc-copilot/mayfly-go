@@ -40,4 +40,7 @@ const (
 	ErrEventNoPermission
 	ErrExportNoPermission
 	ErrCollectUnsupported
+	ErrBindOverwriteRequired
+	ErrBindAppNotFound
+	ErrOctopUserInstanceRequired
 )

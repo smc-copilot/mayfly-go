@@ -237,5 +237,7 @@ export default {
         octopEventExport: 'Logs - Export',
         octopCollectRecollect: 'Logs - Recollect',
         octopConfigSave: 'Collector Settings - Save',
+        octopUsers: 'Octop Users',
+        octopUsersBase: 'Users - Base',
     },
 };

@@ -30,6 +30,7 @@ func (i *Instance) ReqConfs() *req.Confs {
 		req.NewDelete("/instances/:id", i.Delete).Log(req.NewLogSaveI(imsg.LogOctopInstanceDelete)).RequiredPermissionCode("octop:instance:del"),
 		req.NewPost("/instances/:id/restart", i.Restart).Log(req.NewLogSaveI(imsg.LogOctopInstanceRestart)).RequiredPermissionCode("octop:instance:restart"),
 		req.NewPost("/instances/bind-app", i.BindApp).Log(req.NewLogSaveI(imsg.LogOctopAppBind)).RequiredPermissionCode("octop:casdoor:save"),
+		req.NewGet("/instances/:id/users", i.Users).RequiredPermissionCode("octop:users:base"),
 		req.NewGet("/settings", i.GetSettings).RequiredPermissionCode("octop:overview:base"),
 		req.NewPost("/settings", i.SaveSettings).Log(req.NewLogSaveI(imsg.LogOctopSettingsSave)).RequiredPermissionCode("octop:config:save"),
 	}
@@ -85,8 +86,8 @@ func (i *Instance) Save(rc *req.Ctx) {
 	f := rc.BindJson[form.InstanceForm]()
 	inst := f.ToEntity()
 	inst.Id = f.Id
-	rc.ReqParam = collx.Kvs("name", inst.Name, "machineId", inst.MachineId)
-	biz.ErrIsNil(i.instanceApp.SaveInstance(rc.MetaCtx, inst))
+	rc.ReqParam = collx.Kvs("name", inst.Name, "machineId", inst.MachineId, "callbackUrl", inst.CallbackURL)
+	biz.ErrIsNil(i.instanceApp.SaveInstance(rc.MetaCtx, inst, f.ApiToken))
 	rc.ResData = inst.Id
 }
 
@@ -106,8 +107,16 @@ func (i *Instance) Restart(rc *req.Ctx) {
 
 func (i *Instance) BindApp(rc *req.Ctx) {
 	f := rc.BindJson[form.BindAppForm]()
-	rc.ReqParam = collx.Kvs("instanceId", f.InstanceId, "appSnapshotId", f.AppSnapshotId)
-	biz.ErrIsNil(i.instanceApp.BindCasdoorApp(rc.MetaCtx, f.InstanceId, f.AppSnapshotId))
+	rc.ReqParam = collx.Kvs("instanceId", f.InstanceId, "appSnapshotId", f.AppSnapshotId, "confirmOverwrite", f.ConfirmOverwrite)
+	biz.ErrIsNil(i.instanceApp.BindCasdoorApp(rc.MetaCtx, f.InstanceId, f.AppSnapshotId, f.ConfirmOverwrite))
+}
+
+func (i *Instance) Users(rc *req.Ctx) {
+	q := rc.BindQuery[entity.OctopUserQuery]()
+	q.InstanceId = cast.ToUint64(rc.PathParam("id"))
+	res, err := i.instanceApp.ListOctopUsers(rc.MetaCtx, q)
+	biz.ErrIsNil(err)
+	rc.ResData = res
 }
 
 func (i *Instance) GetSettings(rc *req.Ctx) {

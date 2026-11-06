@@ -228,6 +228,21 @@ func v1123() []*gormigrate.Migration {
 			},
 			Rollback: migrationx.NoopRollback,
 		},
+
+		{
+			// Octop 实例回调地址 / API Token，Casdoor 应用 redirectUris 白名单，用户列表菜单。
+			ID: "v1.12.3-octop-bind-and-users",
+			Migrate: func(tx *gorm.DB) error {
+				if err := tx.AutoMigrate(
+					&octopentity.OctopInstance{},
+					&octopentity.CasdoorApplicationSnapshot{},
+				); err != nil {
+					return err
+				}
+				return migrationx.InsertResourcesWithRole(tx, octopBindUserResources)
+			},
+			Rollback: migrationx.NoopRollback,
+		},
 	}
 }
 
@@ -249,4 +264,9 @@ var octopResources = []migrationx.ResourceDef{
 	migrationx.Resource(1750000018, 1750000005, "Octop001/Evnt0001/Ev00003/", 2, "menu.octopEventExport", "octop:event:export", 20000000, ""),
 	migrationx.Resource(1750000019, 1750000005, "Octop001/Evnt0001/Ev00004/", 2, "menu.octopCollectRecollect", "octop:collect:recollect", 30000000, ""),
 	migrationx.Resource(1750000020, 1750000002, "Octop001/Ov00001/Ov00003/", 2, "menu.octopConfigSave", "octop:config:save", 20000000, ""),
+}
+
+var octopBindUserResources = []migrationx.ResourceDef{
+	migrationx.Resource(1750000006, 1750000001, "Octop001/User0001/", 1, "menu.octopUsers", "octop-users", 35000000, `{"component":"octop/users/UserList","icon":"UserFilled","isKeepAlive":true,"routeName":"OctopUsers"}`),
+	migrationx.Resource(1750000021, 1750000006, "Octop001/User0001/Us00002/", 2, "menu.octopUsersBase", "octop:users:base", 10000000, ""),
 }
