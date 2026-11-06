@@ -92,6 +92,30 @@
                     <template #relationStatus="{ data }">
                         <enum-tag :enums="OctopAuthStatusEnum" :value="data.relationStatus || 'unverified'" />
                     </template>
+                    <template #redirectUris="{ data }">
+                        <div v-if="matchOf(data.id)?.redirectUris?.length" class="text-xs break-all space-y-1">
+                            <div v-for="uri in matchOf(data.id)?.redirectUris || []" :key="uri">{{ uri }}</div>
+                        </div>
+                        <span v-else class="text-xs text-gray-500">{{ $t('octop.noRedirectUris') }}</span>
+                    </template>
+                    <template #existingBinding="{ data }">
+                        <div v-if="matchOf(data.id)?.existing?.length" class="text-xs space-y-1">
+                            <div v-for="item in matchOf(data.id)?.existing || []" :key="item.instanceId">{{ item.instanceName }} (#{{ item.instanceId }})</div>
+                        </div>
+                        <span v-else>-</span>
+                    </template>
+                    <template #matchStatus="{ data }">
+                        <enum-tag :enums="OctopBindMatchEnum" :value="matchOf(data.id)?.matchStatus || 'unverified'" />
+                    </template>
+                    <template #matchCandidates="{ data }">
+                        <div v-if="matchOf(data.id)?.candidates?.length" class="text-xs space-y-1">
+                            <div v-for="item in matchOf(data.id)?.candidates || []" :key="item.instanceId">
+                                {{ item.instanceName }} · {{ item.matchBasis === 'callbackUrl' ? $t('octop.matchBasisCallback') : $t('octop.matchBasisApi') }}
+                                <div class="text-gray-500 break-all">{{ item.matchedRedirectUri }}</div>
+                            </div>
+                        </div>
+                        <span v-else>-</span>
+                    </template>
                     <template #lastSyncAt="{ data }">
                         {{ formatShanghai(data.lastSyncAt) }}
                     </template>
@@ -193,13 +217,41 @@
             </template>
         </el-dialog>
 
-        <el-dialog v-model="bindVisible" :title="$t('octop.bindInstance')" width="480px">
-            <el-select v-model="bindInstanceId" class="w-full">
-                <el-option v-for="item in instances" :key="item.id" :label="item.name" :value="item.id" />
+        <el-dialog v-model="bindVisible" :title="$t('octop.bindInstance')" width="640px">
+            <el-alert type="info" :closable="false" class="mb-3" :title="$t('octop.bindHint')" />
+            <div v-if="activeMatch" class="text-sm space-y-2 mb-3">
+                <div>{{ $t('octop.sourceId') }}: {{ activeMatch.sourceId }}</div>
+                <div>
+                    {{ $t('octop.redirectUris') }}:
+                    <div v-if="activeMatch.redirectUris.length" class="text-xs break-all">
+                        <div v-for="uri in activeMatch.redirectUris" :key="uri">{{ uri }}</div>
+                    </div>
+                    <span v-else class="text-xs text-gray-500">{{ $t('octop.noRedirectUris') }}</span>
+                </div>
+                <div>
+                    {{ $t('octop.existingBinding') }}:
+                    <span v-if="activeMatch.existing.length">{{ activeMatch.existing.map((e) => e.instanceName).join(', ') }}</span>
+                    <span v-else>-</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    {{ $t('octop.matchStatus') }}:
+                    <enum-tag :enums="OctopBindMatchEnum" :value="activeMatch.matchStatus" />
+                </div>
+                <div v-if="activeMatch.candidates.length">
+                    {{ $t('octop.matchCandidates') }}:
+                    <div v-for="item in activeMatch.candidates" :key="item.instanceId" class="text-xs">
+                        {{ item.instanceName }} · {{ item.matchBasis === 'callbackUrl' ? $t('octop.matchBasisCallback') : $t('octop.matchBasisApi') }} · {{ item.normalizedRedirect }}
+                    </div>
+                </div>
+            </div>
+            <el-select v-model="bindInstanceId" class="w-full" filterable>
+                <el-option v-for="item in instances" :key="item.id" :label="bindOptionLabel(item)" :value="item.id" />
             </el-select>
+            <el-alert v-if="overwriteNeeded" type="warning" :closable="false" class="mt-3" :title="$t('octop.bindOverwriteHint')" />
+            <el-checkbox v-if="overwriteNeeded" v-model="confirmOverwrite" class="mt-2">{{ $t('octop.confirmOverwrite') }}</el-checkbox>
             <template #footer>
                 <el-button @click="bindVisible = false">{{ $t('common.cancel') }}</el-button>
-                <el-button type="primary" @click="onBind">{{ $t('common.save') }}</el-button>
+                <el-button type="primary" :disabled="!bindInstanceId || (overwriteNeeded && !confirmOverwrite)" @click="onBind">{{ $t('common.save') }}</el-button>
             </template>
         </el-dialog>
     </div>
@@ -214,8 +266,8 @@ import EnumTag from '@/components/enum-tag/EnumTag.vue';
 import EnumValue from '@/common/Enum';
 import { Msg, useI18nDeleteConfirm } from '@/hooks/useI18n';
 import { octopCasdoorApi, octopInstanceApi } from '../api';
-import { OctopAuthStatusEnum, OctopProbeEnum, OctopSyncStatusEnum } from '../enums';
-import type { CasdoorApp, CasdoorAuth, CasdoorConnection, CasdoorTestResult, IdentityLink, InstanceOverview } from '../types';
+import { OctopAuthStatusEnum, OctopBindMatchEnum, OctopProbeEnum, OctopSyncStatusEnum } from '../enums';
+import type { AppBindMatch, CasdoorApp, CasdoorAuth, CasdoorConnection, CasdoorTestResult, IdentityLink, InstanceOverview } from '../types';
 import { formatShanghai } from '../time';
 
 const enableEnum = {
@@ -239,6 +291,8 @@ const linkVisible = ref(false);
 const bindVisible = ref(false);
 const bindAppId = ref(0);
 const bindInstanceId = ref<number>();
+const confirmOverwrite = ref(false);
+const bindMatches = ref<Record<number, AppBindMatch>>({});
 const testResult = ref<CasdoorTestResult | null>(null);
 
 const connForm = reactive({
@@ -282,6 +336,10 @@ const appColumns = [
     TableColumn.new('appOwner', 'octop.appOwner'),
     TableColumn.new('enabled', 'octop.enabled').isSlot(),
     TableColumn.new('relationStatus', 'octop.relationStatus').isSlot(),
+    TableColumn.new('redirectUris', 'octop.redirectUris').isSlot(),
+    TableColumn.new('existingBinding', 'octop.existingBinding').isSlot(),
+    TableColumn.new('matchStatus', 'octop.matchStatus').isSlot(),
+    TableColumn.new('matchCandidates', 'octop.matchCandidates').isSlot(),
     TableColumn.new('present', 'octop.present').isSlot(),
     TableColumn.new('lastSyncAt', 'octop.lastSuccess').isSlot(),
     TableColumn.new('action', 'common.operation')
@@ -310,7 +368,41 @@ const loadConn = async () => {
     }
     appTableRef.value?.search();
     userTableRef.value?.search();
+    await loadMatches();
 };
+
+const loadMatches = async () => {
+    if (!conn.value) {
+        bindMatches.value = {};
+        return;
+    }
+    const list = (await octopCasdoorApi.bindMatches.request({ connectionId: conn.value.id })) || [];
+    const next: Record<number, AppBindMatch> = {};
+    for (const item of list) {
+        next[item.appSnapshotId] = item;
+    }
+    bindMatches.value = next;
+};
+
+const matchOf = (appId: number) => bindMatches.value[appId];
+
+const bindOptionLabel = (item: InstanceOverview) => {
+    const match = matchOf(bindAppId.value);
+    const candidate = match?.candidates.find((c) => c.instanceId === item.id);
+    if (candidate) {
+        return `${item.name} (${candidate.matchBasis === 'callbackUrl' ? 'callback' : 'api'})`;
+    }
+    if (item.casdoorAppSnapshotId) {
+        return `${item.name} (#${item.id})`;
+    }
+    return item.name;
+};
+
+const activeMatch = computed(() => matchOf(bindAppId.value));
+const overwriteNeeded = computed(() => {
+    const inst = instances.value.find((item) => item.id === bindInstanceId.value);
+    return !!inst && !!inst.casdoorAppSnapshotId && inst.casdoorAppSnapshotId !== bindAppId.value;
+});
 
 const onLoadAuths = async () => {
     if (!conn.value || !authAppId.value) {
@@ -377,14 +469,23 @@ const onDeleteLink = async (id: number) => {
 
 const onOpenBind = (row: CasdoorApp) => {
     bindAppId.value = row.id;
+    confirmOverwrite.value = false;
+    const match = matchOf(row.id);
+    bindInstanceId.value = match?.candidates.length === 1 ? match.candidates[0].instanceId : undefined;
     bindVisible.value = true;
 };
 
 const onBind = async () => {
     if (!bindInstanceId.value) return;
-    await octopInstanceApi.bindApp.request({ instanceId: bindInstanceId.value, appSnapshotId: bindAppId.value });
+    await octopInstanceApi.bindApp.request({
+        instanceId: bindInstanceId.value,
+        appSnapshotId: bindAppId.value,
+        confirmOverwrite: confirmOverwrite.value,
+    });
     bindVisible.value = false;
     Msg.success('common.success');
+    instances.value = (await octopInstanceApi.overview.request()) || instances.value;
+    await loadMatches();
 };
 
 onMounted(async () => {

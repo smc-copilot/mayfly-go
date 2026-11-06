@@ -101,3 +101,52 @@ type EventPage struct {
 }
 
 type EventSummary = repository.EventSummary
+
+type AppBindMatch struct {
+	AppSnapshotId uint64           `json:"appSnapshotId"`
+	SourceId      string           `json:"sourceId"`
+	Name          string           `json:"name"`
+	DisplayName   string           `json:"displayName"`
+	RedirectURIs  []string         `json:"redirectUris"`
+	Existing      []ExistingBind   `json:"existing"`
+	MatchStatus   string           `json:"matchStatus"`
+	Candidates    []MatchCandidate `json:"candidates"`
+}
+
+type ExistingBind struct {
+	InstanceId   uint64 `json:"instanceId"`
+	InstanceName string `json:"instanceName"`
+	InstanceCode string `json:"instanceCode"`
+}
+
+type MatchCandidate struct {
+	InstanceId           uint64 `json:"instanceId"`
+	InstanceName         string `json:"instanceName"`
+	InstanceCode         string `json:"instanceCode"`
+	CallbackURL          string `json:"callbackUrl"`
+	ApiURL               string `json:"apiUrl"`
+	MatchedRedirectURI   string `json:"matchedRedirectUri"`
+	MatchBasis           string `json:"matchBasis"`
+	NormalizedCallback   string `json:"normalizedCallback"`
+	NormalizedRedirect   string `json:"normalizedRedirect"`
+	CurrentAppSnapshotId uint64 `json:"currentAppSnapshotId"`
+}
+
+type OctopUser struct {
+	ID          string `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"displayName"`
+	Email       string `json:"email"`
+	Status      string `json:"status"`
+}
+
+type OctopUserPage struct {
+	Total      int64        `json:"total"`
+	List       []*OctopUser `json:"list"`
+	PageNum    int          `json:"pageNum"`
+	PageSize   int          `json:"pageSize"`
+	Status     string       `json:"status"`
+	Message    string       `json:"message"`
+	FilterMode string       `json:"filterMode"`
+	FilterNote string       `json:"filterNote"`
+}

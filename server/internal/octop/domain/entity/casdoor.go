@@ -76,6 +76,7 @@ type CasdoorApplicationSnapshot struct {
 	Enabled        int8       `json:"enabled" gorm:"not null;default:0"` // 1 启用 / -1 停用 / 0 未知，缺失字段不得推断为启用
 	AppType        string     `json:"appType" gorm:"size:32"`
 	HomepageURL    string     `json:"homepageUrl" gorm:"size:255"`
+	RedirectURIs   string     `json:"redirectUris" gorm:"type:text"`     // OIDC redirect/callback URL 白名单 JSON，不含密钥
 	Present        int8       `json:"present" gorm:"not null;default:1"` // 本次成功同步是否仍存在
 	RelationStatus string     `json:"relationStatus" gorm:"size:16"`     // confirmed / unverified / unsupported
 	LastSyncAt     *time.Time `json:"lastSyncAt"`

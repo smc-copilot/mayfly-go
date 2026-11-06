@@ -46,6 +46,27 @@ export const OctopSyncStatusEnum = {
     Running: EnumValue.of('running', 'octop.syncing').tagTypeInfo(),
 };
 
+export const OctopBindMatchEnum = {
+    Unique: EnumValue.of('unique', 'octop.matchUnique').tagTypeSuccess(),
+    Ambiguous: EnumValue.of('ambiguous', 'octop.matchAmbiguous').tagTypeWarning(),
+    None: EnumValue.of('none', 'octop.matchNone').tagTypeInfo(),
+    Unverified: EnumValue.of('unverified', 'octop.matchUnverified').tagTypeWarning(),
+};
+
+export const OctopUserListStatusEnum = {
+    Ok: EnumValue.of('ok', 'octop.userListOk').tagTypeSuccess(),
+    Unconfigured: EnumValue.of('unconfigured', 'octop.userListUnconfigured').tagTypeWarning(),
+    Forbidden: EnumValue.of('forbidden', 'octop.userListForbidden').tagTypeDanger(),
+    Unreachable: EnumValue.of('unreachable', 'octop.userListUnreachable').tagTypeDanger(),
+    Unexpected: EnumValue.of('unexpected', 'octop.userListUnexpected').tagTypeWarning(),
+};
+
+export const OctopUserStatusEnum = {
+    Enabled: EnumValue.of('enabled', 'common.enable').tagTypeSuccess(),
+    Disabled: EnumValue.of('disabled', 'common.disable').tagTypeDanger(),
+    Unknown: EnumValue.of('unknown', 'octop.statusUnknown').tagTypeInfo(),
+};
+
 export const OctopGapEnum = {
     None: EnumValue.of('', 'octop.gapNone'),
     CollectFail: EnumValue.of('collect_fail', 'octop.gapCollectFail').tagTypeDanger(),

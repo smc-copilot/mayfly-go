@@ -237,5 +237,7 @@ export default {
         octopEventExport: '日志-导出',
         octopCollectRecollect: '日志-补采',
         octopConfigSave: '采集配置-保存',
+        octopUsers: 'Octop 用户列表',
+        octopUsersBase: '用户列表-基础权限',
     },
 };

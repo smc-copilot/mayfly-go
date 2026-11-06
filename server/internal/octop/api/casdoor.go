@@ -14,7 +14,8 @@ import (
 )
 
 type Casdoor struct {
-	casdoorApp application.Casdoor `inject:"T"`
+	casdoorApp  application.Casdoor  `inject:"T"`
+	instanceApp application.Instance `inject:"T"`
 }
 
 func (c *Casdoor) ReqConfs() *req.Confs {
@@ -24,6 +25,7 @@ func (c *Casdoor) ReqConfs() *req.Confs {
 		req.NewPost("/casdoor/connections", c.Save).Log(req.NewLogSaveI(imsg.LogOctopCasdoorSave)).RequiredPermissionCode("octop:casdoor:save"),
 		req.NewPost("/casdoor/connections/:id/sync", c.Sync).Log(req.NewLogSaveI(imsg.LogOctopCasdoorSync)).RequiredPermissionCode("octop:casdoor:save"),
 		req.NewGet("/casdoor/apps", c.Apps).RequiredPermissionCode("octop:casdoor:base"),
+		req.NewGet("/casdoor/bind-matches", c.BindMatches).RequiredPermissionCode("octop:casdoor:base"),
 		req.NewGet("/casdoor/users", c.Users).RequiredPermissionCode("octop:casdoor:base"),
 		req.NewGet("/casdoor/auths", c.Auths).RequiredPermissionCode("octop:casdoor:base"),
 		req.NewGet("/casdoor/identity-links", c.Links).RequiredPermissionCode("octop:casdoor:base"),
@@ -60,6 +62,13 @@ func (c *Casdoor) Sync(rc *req.Ctx) {
 	id := cast.ToUint64(rc.PathParam("id"))
 	rc.ReqParam = id
 	res, err := c.casdoorApp.Sync(rc.MetaCtx, id)
+	biz.ErrIsNil(err)
+	rc.ResData = res
+}
+
+func (c *Casdoor) BindMatches(rc *req.Ctx) {
+	connectionId := cast.ToUint64(rc.Query("connectionId"))
+	res, err := c.instanceApp.ListBindMatches(rc.MetaCtx, connectionId)
 	biz.ErrIsNil(err)
 	rc.ResData = res
 }

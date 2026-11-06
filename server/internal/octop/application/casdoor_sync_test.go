@@ -182,6 +182,26 @@ func TestSyncDirectoryPaginationAndRevoke(t *testing.T) {
 	require.Equal(t, int8(1), kept.Present)
 }
 
+func TestSyncDirectoryPersistsRedirectURIsOnly(t *testing.T) {
+	setupOctopDB(t)
+	apps, users, auths := newCasdoorAppRepoForTest(), newCasdoorUserRepoForTest(), newCasdoorAuthRepoForTest()
+	conn := &entity.CasdoorConnection{Organization: "org", AppOwner: "built-in"}
+	conn.Id = 21
+	client := &fakeCasdoor{
+		apps: []casdoor.Application{{
+			SourceID: "app-a", Name: "app-a", Organization: "org", Owner: "built-in",
+			Enabled: true, EnabledKnown: true,
+			RedirectURIs: []string{"https://octop.example.com/api/auth/oidc/callback"},
+		}},
+	}
+	res := SyncDirectory(context.Background(), client, conn, apps, users, auths)
+	require.Equal(t, entity.SyncStatusSuccess, res.Apps.Status)
+	row, err := apps.GetBySource(conn.Id, "app-a")
+	require.NoError(t, err)
+	require.Equal(t, `["https://octop.example.com/api/auth/oidc/callback"]`, row.RedirectURIs)
+	require.NotContains(t, row.RedirectURIs, "secret")
+}
+
 func TestSyncDirectoryPage2FailureKeepsSnapshot(t *testing.T) {
 	setupOctopDB(t)
 	apps, users, auths := newCasdoorAppRepoForTest(), newCasdoorUserRepoForTest(), newCasdoorAuthRepoForTest()

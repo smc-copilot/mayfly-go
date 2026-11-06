@@ -13,6 +13,7 @@ import (
 	"mayfly-go/internal/octop/domain/repository"
 	"mayfly-go/internal/octop/imsg"
 	"mayfly-go/internal/octop/infra/octopapi"
+	"mayfly-go/internal/pkg/utils"
 	tagapp "mayfly-go/internal/tag/application"
 	"mayfly-go/pkg/base"
 	"mayfly-go/pkg/errorx"
@@ -23,14 +24,16 @@ import (
 
 type Instance interface {
 	base.App[*entity.OctopInstance]
-	SaveInstance(ctx context.Context, inst *entity.OctopInstance) error
+	SaveInstance(ctx context.Context, inst *entity.OctopInstance, apiToken string) error
 	DeleteInstance(ctx context.Context, id uint64) error
 	PageVisible(ctx context.Context, q *entity.InstanceQuery) (*model.PageResult[*dto.InstanceOverview], error)
 	Overview(ctx context.Context) ([]*dto.InstanceOverview, error)
 	Detail(ctx context.Context, id uint64) (*dto.InstanceDetail, error)
 	TestConn(ctx context.Context, inst *entity.OctopInstance) (*dto.ConnTestResult, error)
 	Restart(ctx context.Context, id uint64) (*dto.RestartResult, error)
-	BindCasdoorApp(ctx context.Context, instanceId, appSnapshotId uint64) error
+	BindCasdoorApp(ctx context.Context, instanceId, appSnapshotId uint64, confirmOverwrite bool) error
+	ListBindMatches(ctx context.Context, connectionId uint64) ([]*dto.AppBindMatch, error)
+	ListOctopUsers(ctx context.Context, q *entity.OctopUserQuery) (*dto.OctopUserPage, error)
 	VisibleInstanceIDs(ctx context.Context) ([]uint64, error)
 	AssertInstanceAccess(ctx context.Context, inst *entity.OctopInstance) error
 	CollectOne(ctx context.Context, inst *entity.OctopInstance) error
@@ -50,11 +53,12 @@ type instanceAppImpl struct {
 	checkpointRepo   repository.Checkpoint    `inject:"T"`
 	appRepo          repository.CasdoorApp    `inject:"T"`
 	runRepo          repository.CollectorRun  `inject:"T"`
+	fetchUsers       func(context.Context, string, string) octopapi.UsersResult
 }
 
 var _ Instance = (*instanceAppImpl)(nil)
 
-func (a *instanceAppImpl) SaveInstance(ctx context.Context, inst *entity.OctopInstance) error {
+func (a *instanceAppImpl) SaveInstance(ctx context.Context, inst *entity.OctopInstance, apiToken string) error {
 	if strings.TrimSpace(inst.Name) == "" {
 		return errorx.NewBizI(ctx, imsg.ErrInstanceNameRequired)
 	}
@@ -81,9 +85,31 @@ func (a *instanceAppImpl) SaveInstance(ctx context.Context, inst *entity.OctopIn
 		if err != nil {
 			return err
 		}
-		inst.Code = old.Code
+		preserveInstanceOnUpdate(inst, old)
+	}
+	if strings.TrimSpace(apiToken) != "" {
+		enc, err := utils.PwdAesEncrypt(strings.TrimSpace(apiToken))
+		if err != nil {
+			return err
+		}
+		inst.ApiTokenEnc = enc
+		inst.ApiTokenConfigured = 1
 	}
 	return a.Save(ctx, inst)
+}
+
+func preserveInstanceOnUpdate(inst, old *entity.OctopInstance) {
+	inst.Code = old.Code
+	inst.CasdoorAppSnapshotId = old.CasdoorAppSnapshotId
+	inst.CasdoorConnectionId = old.CasdoorConnectionId
+	inst.ApiTokenEnc = old.ApiTokenEnc
+	inst.ApiTokenConfigured = old.ApiTokenConfigured
+	inst.ExtraData = old.ExtraData
+	inst.LastHealthStatus = old.LastHealthStatus
+	inst.LastHealthReason = old.LastHealthReason
+	inst.LastCollectAt = old.LastCollectAt
+	inst.LastCollectError = old.LastCollectError
+	inst.ConsecutiveHttpFails = old.ConsecutiveHttpFails
 }
 
 func (a *instanceAppImpl) DeleteInstance(ctx context.Context, id uint64) error {
@@ -260,24 +286,6 @@ func (a *instanceAppImpl) Restart(ctx context.Context, id uint64) (*dto.RestartR
 	return result, nil
 }
 
-func (a *instanceAppImpl) BindCasdoorApp(ctx context.Context, instanceId, appSnapshotId uint64) error {
-	inst, err := a.mustGetVisible(ctx, instanceId)
-	if err != nil {
-		return err
-	}
-	if appSnapshotId > 0 {
-		app, err := a.appRepo.GetById(appSnapshotId)
-		if err != nil {
-			return err
-		}
-		inst.CasdoorAppSnapshotId = app.Id
-		inst.CasdoorConnectionId = app.ConnectionId
-	} else {
-		inst.CasdoorAppSnapshotId = 0
-	}
-	return a.UpdateById(ctx, inst)
-}
-
 func (a *instanceAppImpl) toOverview(ctx context.Context, inst *entity.OctopInstance) *dto.InstanceOverview {
 	ov := &dto.InstanceOverview{
 		OctopInstance: inst,
@@ -402,9 +410,9 @@ func parseInt64(s string) int64 {
 	return n
 }
 
-func ptrInt8(v int8) *int8       { return &v }
-func ptrF64(v float64) *float64  { return &v }
-func ptrI64(v int64) *int64      { return &v }
+func ptrInt8(v int8) *int8      { return &v }
+func ptrF64(v float64) *float64 { return &v }
+func ptrI64(v int64) *int64     { return &v }
 
 func logCollectErr(inst *entity.OctopInstance, err error) {
 	if err == nil {

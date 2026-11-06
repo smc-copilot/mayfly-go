@@ -1,6 +1,10 @@
 package form
 
-import "mayfly-go/internal/octop/domain/entity"
+import (
+	"strings"
+
+	"mayfly-go/internal/octop/domain/entity"
+)
 
 type InstanceForm struct {
 	Id                uint64 `json:"id"`
@@ -24,6 +28,8 @@ type InstanceForm struct {
 	DiskWarn          int    `json:"diskWarn"`
 	DiskCrit          int    `json:"diskCrit"`
 	HttpFailThreshold int    `json:"httpFailThreshold"`
+	CallbackURL       string `json:"callbackUrl"`
+	ApiToken          string `json:"apiToken"`
 }
 
 func (f *InstanceForm) ToEntity() *entity.OctopInstance {
@@ -35,6 +41,7 @@ func (f *InstanceForm) ToEntity() *entity.OctopInstance {
 		Maintenance: f.Maintenance, SampleIntervalSec: f.SampleIntervalSec,
 		CpuWarn: f.CpuWarn, CpuCrit: f.CpuCrit, MemWarn: f.MemWarn, MemCrit: f.MemCrit,
 		DiskWarn: f.DiskWarn, DiskCrit: f.DiskCrit, HttpFailThreshold: f.HttpFailThreshold,
+		CallbackURL: strings.TrimSpace(f.CallbackURL),
 	}
 }
 
@@ -60,8 +67,9 @@ func (f *CasdoorForm) ToEntity() *entity.CasdoorConnection {
 }
 
 type BindAppForm struct {
-	InstanceId    uint64 `json:"instanceId"`
-	AppSnapshotId uint64 `json:"appSnapshotId"`
+	InstanceId       uint64 `json:"instanceId"`
+	AppSnapshotId    uint64 `json:"appSnapshotId"`
+	ConfirmOverwrite bool   `json:"confirmOverwrite"`
 }
 
 type IdentityLinkForm struct {

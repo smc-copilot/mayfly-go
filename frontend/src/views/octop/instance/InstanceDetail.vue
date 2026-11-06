@@ -22,6 +22,8 @@
                 <div class="mt-3 text-sm space-y-1">
                     <div>{{ $t('octop.machine') }}: {{ overview.machineName }} {{ overview.machineIp }}</div>
                     <div>{{ $t('octop.casdoorApp') }}: {{ overview.casdoorAppName || '-' }}</div>
+                    <div>{{ $t('octop.callbackUrl') }}: {{ overview.callbackUrl || '-' }}</div>
+                    <div>{{ $t('octop.apiToken') }}: {{ overview.apiTokenConfigured === 1 ? $t('octop.secretConfigured') : $t('octop.secretEmpty') }}</div>
                     <div>{{ $t('octop.startMode') }}: {{ overview.startMode }} {{ overview.systemdUnit }}</div>
                 </div>
             </div>
