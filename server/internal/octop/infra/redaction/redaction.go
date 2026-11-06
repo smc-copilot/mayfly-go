@@ -23,7 +23,7 @@ var allowedKeys = map[string]struct{}{
 	"thread_id": {}, "threadid": {}, "turn_id": {}, "turnid": {},
 	"user_id": {}, "userid": {}, "username": {}, "user_name": {},
 	"agent_id": {}, "agentid": {}, "agent_name": {}, "agentname": {},
-	"action": {}, "event_type": {}, "eventtype": {}, "step_type": {}, "steptype": {},
+	"action": {}, "actor": {}, "kind": {}, "event_type": {}, "eventtype": {}, "step_type": {}, "steptype": {},
 	"tool_name": {}, "toolname": {}, "status": {}, "success": {}, "result_code": {},
 	"target": {}, "model": {}, "source": {},
 	"input_tokens": {}, "inputtokens": {}, "output_tokens": {}, "outputtokens": {},

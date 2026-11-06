@@ -30,11 +30,11 @@ type Queryer interface {
 
 // Profile 默认对齐公开 Octop schema；部署版不一致时由实例 extra 覆盖列名。
 type Profile struct {
-	AuditTable       string
-	UsageTable       string
-	TrajectoryTable  string
-	IDColumn         string
-	TimeColumn       string
+	AuditTable      string
+	UsageTable      string
+	TrajectoryTable string
+	IDColumn        string
+	TimeColumn      string
 }
 
 func DefaultProfile() Profile {
@@ -82,6 +82,14 @@ func (r *Reader) Probe(ctx context.Context, sourceTable string) (coverage string
 	timeCol := quoteIdent(r.profile.TimeColumn)
 	sql := fmt.Sprintf("SELECT MIN(%s) AS min_id, MIN(%s) AS min_time FROM %s", idCol, timeCol, table)
 	_, rows, qerr := r.q.QueryContext(ctx, sql)
+	// Octop deployments use ts, while older schemas expose created_at.
+	// Only retry a missing time column; permission and connection errors must survive.
+	if qerr != nil && r.profile.TimeColumn == "created_at" &&
+		strings.Contains(strings.ToLower(qerr.Error()), "created_at") &&
+		(strings.Contains(strings.ToLower(qerr.Error()), "does not exist") || strings.Contains(strings.ToLower(qerr.Error()), "undefined_column")) {
+		sql = fmt.Sprintf("SELECT MIN(%s) AS min_id, MIN(%s) AS min_time FROM %s", idCol, quoteIdent("ts"), table)
+		_, rows, qerr = r.q.QueryContext(ctx, sql)
+	}
 	if qerr != nil {
 		return classifyErr(qerr), "", qerr
 	}
@@ -99,7 +107,7 @@ func (r *Reader) ReadBatch(ctx context.Context, sourceTable, afterID string, lim
 	}
 	table := quoteIdent(r.TableName(sourceTable))
 	idCol := quoteIdent(r.profile.IDColumn)
-	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s > ? ORDER BY %s ASC LIMIT %d", table, idCol, idCol, limit)
+	sql := fmt.Sprintf("SELECT * FROM %s WHERE %s > $1 ORDER BY %s ASC LIMIT %d", table, idCol, idCol, limit)
 	after := afterID
 	if after == "" {
 		after = "0"
@@ -168,7 +176,7 @@ func stringify(v any) string {
 	case int:
 		return strconv.Itoa(t)
 	case float64:
-		return strconv.FormatInt(int64(t), 10)
+		return strconv.FormatFloat(t, 'f', -1, 64)
 	default:
 		return strings.TrimSpace(fmt.Sprint(t))
 	}

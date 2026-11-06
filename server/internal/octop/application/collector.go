@@ -29,14 +29,14 @@ type Collector interface {
 }
 
 type collectorAppImpl struct {
-	instanceRepo   repository.Instance   `inject:"T"`
-	eventRepo      repository.Event      `inject:"T"`
-	checkpointRepo repository.Checkpoint `inject:"T"`
+	instanceRepo   repository.Instance     `inject:"T"`
+	eventRepo      repository.Event        `inject:"T"`
+	checkpointRepo repository.Checkpoint   `inject:"T"`
 	runRepo        repository.CollectorRun `inject:"T"`
 	linkRepo       repository.IdentityLink `inject:"T"`
-	settingsRepo   repository.Settings   `inject:"T"`
+	settingsRepo   repository.Settings     `inject:"T"`
 	metricRepo     repository.MetricSample `inject:"T"`
-	dbApp          dbapp.Db              `inject:"T"`
+	dbApp          dbapp.Db                `inject:"T"`
 	txFn           func(ctx context.Context, fns ...func(context.Context) error) error
 }
 
@@ -143,13 +143,8 @@ func (c *collectorAppImpl) collectTable(ctx context.Context, inst *entity.OctopI
 		return 0, 0, c.failCheckpoint(ctx, cp, coverage, perr.Error())
 	}
 	cp.Coverage = coverage
-	if t, err := time.Parse(time.RFC3339, retention); err == nil {
+	if t, ok := parseSourceTime(retention); ok {
 		cp.RetentionStart = &t
-	} else if retention != "" {
-		if t, err := time.Parse("2006-01-02 15:04:05", retention); err == nil {
-			utc := t.UTC()
-			cp.RetentionStart = &utc
-		}
 	}
 
 	after := cp.LastRecordId
@@ -275,12 +270,18 @@ func mapEvent(inst *entity.OctopInstance, table string, row pgcollect.Row) *enti
 	f := row.Fields
 	ev.OctopUserId = redaction.String(f, "user_id", "userid")
 	ev.OctopUsername = redaction.String(f, "username", "user_name")
+	if table == entity.SourceTableAuditLog && ev.OctopUsername == "" {
+		ev.OctopUsername = redaction.String(f, "actor")
+	}
 	ev.AgentId = redaction.String(f, "agent_id", "agentid")
 	ev.AgentName = redaction.String(f, "agent_name", "agentname")
 	ev.ThreadId = redaction.String(f, "thread_id", "threadid")
 	ev.TurnId = redaction.String(f, "turn_id", "turnid")
 	ev.EventId = redaction.String(f, "event_id", "eventid")
 	ev.Action = redaction.String(f, "action", "event_type", "step_type")
+	if table == entity.SourceTableTrajectoryEvents && ev.Action == "" {
+		ev.Action = redaction.String(f, "kind")
+	}
 	ev.Target = redaction.String(f, "target")
 	ev.ToolName = redaction.String(f, "tool_name", "toolname")
 	ev.Model = redaction.String(f, "model")
@@ -304,7 +305,7 @@ func mapEvent(inst *entity.OctopInstance, table string, row pgcollect.Row) *enti
 	} else {
 		ev.SourceTimeAbnormal = 1
 	}
-	if ev.Action == "" && ev.ToolName == "" && ev.Status == "" {
+	if ev.Action == "" && ev.ToolName == "" && ev.Status == "" && ev.Model == "" && ev.InputTokens == 0 && ev.OutputTokens == 0 {
 		ev.Uncollected = 1
 		ev.Diagnostic = redaction.Uncollected
 	}
@@ -340,6 +341,10 @@ func parseSourceTime(s string) (time.Time, bool) {
 		if n > 1e9 {
 			return time.Unix(n, 0).UTC(), true
 		}
+	}
+	if n, err := strconv.ParseFloat(s, 64); err == nil && n > 1e9 && n < 1e12 {
+		seconds := int64(n)
+		return time.Unix(seconds, int64((n-float64(seconds))*1e9)).UTC(), true
 	}
 	return time.Time{}, false
 }
