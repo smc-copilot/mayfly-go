@@ -1,5 +1,7 @@
 # Casdoor 独立管理模块 Implementation Plan
 
+> **2026-11-09 模型修订：** 用户已要求继续按 [PRD V2](../../casdoor/2026-11-09-casdoor-management-center-prd-v2.md) 实施。本文旧单组织连接模型由 [服务连接实施补充](../../casdoor/2026-11-09-service-connection-implementation.md) 的计划、页面及接口定义覆盖；不冲突的完整写入需求继续保留。目录阶段完成不代表原 PRD 全量管理已交付。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
 >
 > **版本 R3：保留 R2 的 Casdoor 独立模块边界，补齐页面 Spec、页面接口与验收场景。**

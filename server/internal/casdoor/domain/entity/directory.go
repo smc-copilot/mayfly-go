@@ -11,6 +11,7 @@ import (
 // ClientSecretEnc 仅后端保存，接口只回显「已配置/未配置」和最近轮换时间。
 type Connection struct {
 	model.Model
+	ServiceID uint64 `json:"-" gorm:"not null;default:0;index"`
 
 	Name              string `json:"name" gorm:"size:64;not null"`
 	ServerURL         string `json:"serverUrl" gorm:"size:255;not null"`

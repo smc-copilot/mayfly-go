@@ -19,6 +19,7 @@ import urllib.parse
 
 CASDOOR_IMAGE = os.environ.get("CASDOOR_IMAGE", "")
 MYSQL_IMAGE = os.environ.get("MYSQL_IMAGE", "")
+PROBE_MANAGEMENT_AUTH = os.environ.get("PROBE_MANAGEMENT_AUTH") == "1"
 
 
 def docker(*args, check=True):
@@ -51,6 +52,13 @@ def main():
         item["clientId"] = client_id if index == 0 else secrets.token_hex(12)
         item["clientSecret"] = client_secret if index == 0 else secrets.token_hex(24)
         apps.append(item)
+    management_app = None
+    if PROBE_MANAGEMENT_AUTH:
+        management_app = dict(template)
+        management_app.update(owner="admin", name="mayfly-management-fixture", organization="built-in",
+                              clientId=secrets.token_hex(12), clientSecret=secrets.token_hex(24),
+                              grantTypes=["client_credentials"])
+        apps.append(management_app)
     seed["organizations"] = [organization]
     seed["applications"] = apps
 
@@ -152,9 +160,10 @@ def main():
 
         token = base64.b64encode((client_id + ":" + client_secret).encode()).decode()
 
-        def api(method, path, payload=None):
+        def api(method, path, payload=None, bearer=None):
+            authorization = "Bearer " + bearer if bearer else "Basic " + token
             args = ["exec", app, "curl", "-fsS", "--max-time", "10", "--request", method,
-                    "--header", "Authorization: Basic " + token]
+                    "--header", "Authorization: " + authorization]
             if payload is not None:
                 args.extend(["--header", "Content-Type: application/json", "--data", json.dumps(payload)])
             args.append("http://127.0.0.1:8000" + path)
@@ -226,6 +235,75 @@ def main():
                       and (check.get("data") or {}).get("users") == [])
         print("role_partial_update:", result.get("status"), "readback_empty:",
               (check.get("data") or {}).get("users") == [], flush=True)
+        if PROBE_MANAGEMENT_AUTH:
+            def has_fixture_orgs(response):
+                data = response.get("data")
+                names = {item.get("name") for item in data} if isinstance(data, list) else set()
+                return response.get("status") == "ok" and {"built-in", org_name}.issubset(names)
+
+            limited = api("GET", "/api/get-organizations?owner=admin")
+            limited_data = limited.get("data")
+            limited_names = {item.get("name") for item in limited_data} if isinstance(limited_data, list) else set()
+            checks.append("built-in" not in limited_names)
+            print("business_app_can_discover_builtin:", "built-in" in limited_names, flush=True)
+            token = base64.b64encode((management_app["clientId"] + ":" + management_app["clientSecret"]).encode()).decode()
+            result = api("GET", "/api/get-organizations?owner=admin")
+            checks.append(has_fixture_orgs(result))
+            print("management_app_global_discovery:", has_fixture_orgs(result), flush=True)
+            for organization_name in ("built-in", org_name):
+                for kind, endpoint, parameter in (("apps", "/api/get-organization-applications", "organization"), ("users", "/api/get-users", "owner")):
+                    result = api("GET", endpoint + "?" + urllib.parse.urlencode({parameter: organization_name, "p": 1, "pageSize": 10}))
+                    checks.append(result.get("status") == "ok" and isinstance(result.get("data"), list))
+                    print("management_read", organization_name, kind, result.get("status"), flush=True)
+            oauth = api("POST", "/api/login/oauth/access_token", {"grant_type": "client_credentials", "client_id": management_app["clientId"], "client_secret": management_app["clientSecret"]})
+            bearer = oauth.get("access_token")
+            checks.append(isinstance(bearer, str) and bool(bearer))
+            print("management_client_credentials_token:", bool(bearer), "expires_in_present:", "expires_in" in oauth, flush=True)
+            if bearer:
+                result = api("GET", "/api/get-organizations?owner=admin", bearer=bearer)
+                checks.append(has_fixture_orgs(result))
+                print("management_bearer_global_discovery:", has_fixture_orgs(result), flush=True)
+                for organization_name in ("built-in", org_name):
+                    name = "management-user-" + secrets.token_hex(4)
+                    object_id = organization_name + "/" + name
+                    result = api("POST", "/api/add-user", {"owner": organization_name, "name": name, "displayName": "Management fixture"}, bearer=bearer)
+                    check = api("GET", "/api/get-user?" + urllib.parse.urlencode({"id": object_id}), bearer=bearer)
+                    user_ok = result.get("status") == "ok" and check.get("status") == "ok" and (check.get("data") or {}).get("name") == name
+                    if organization_name == "built-in":
+                        protected = result.get("status") == "error" and "adding a new user" in str(result.get("msg", "")) and not check.get("data")
+                        checks.append(protected)
+                        print("builtin_user_creation_protected:", protected, flush=True)
+                        object_id = "built-in/admin"
+                    else:
+                        checks.append(user_ok)
+                        print("management_bearer_create_user", organization_name, user_ok, flush=True)
+                    result = api("POST", "/api/update-user?" + urllib.parse.urlencode({"id": object_id, "columns": "displayName"}), {"displayName": "Verified management change"}, bearer=bearer)
+                    check = api("GET", "/api/get-user?" + urllib.parse.urlencode({"id": object_id}), bearer=bearer)
+                    update_ok = result.get("status") == "ok" and check.get("status") == "ok" and (check.get("data") or {}).get("displayName") == "Verified management change"
+                    checks.append(update_ok)
+                    print("management_bearer_update_user", organization_name, update_ok, flush=True)
+                for target in (management_app, apps[1]):
+                    object_id = target["owner"] + "/" + target["name"]
+                    patch = {"owner": target["owner"], "name": target["name"], "organization": target["organization"], "clientId": target["clientId"], "displayName": "Verified management app"}
+                    result = api("POST", "/api/update-application?" + urllib.parse.urlencode({"id": object_id, "columns": "displayName"}), patch, bearer=bearer)
+                    check = api("GET", "/api/get-application?" + urllib.parse.urlencode({"id": object_id}), bearer=bearer)
+                    readback = check.get("data") or {}
+                    update_ok = result.get("status") == "ok" and check.get("status") == "ok" and readback.get("displayName") == "Verified management app" and readback.get("clientId") == target["clientId"] and readback.get("clientSecret") == target["clientSecret"]
+                    checks.append(update_ok)
+                    print("management_bearer_update_app", target["organization"], update_ok, flush=True)
+            result = api("GET", "/api/get-keys?owner=admin")
+            print("management_keys_endpoint:", result.get("status"), flush=True)
+            registered = dict(management_app)
+            registered.update(name="mayfly-management-api-fixture", clientId=secrets.token_hex(12), clientSecret=secrets.token_hex(24))
+            apps.append(registered)
+            result = api("POST", "/api/add-application", registered)
+            checks.append(result.get("status") == "ok")
+            print("management_application_api_creation:", result.get("status") == "ok", flush=True)
+            oauth = api("POST", "/api/login/oauth/access_token", {"grant_type": "client_credentials", "client_id": registered["clientId"], "client_secret": registered["clientSecret"]})
+            registered_token = oauth.get("access_token")
+            result = api("GET", "/api/get-organizations?owner=admin", bearer=registered_token) if registered_token else {}
+            checks.append(bool(registered_token) and has_fixture_orgs(result))
+            print("api_created_identity_global_discovery:", bool(registered_token) and has_fixture_orgs(result), flush=True)
         if not all(checks):
             failed = True
             print("isolated checks failed:", len(checks) - sum(checks), "of", len(checks), flush=True)

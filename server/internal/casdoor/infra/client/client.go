@@ -232,7 +232,11 @@ func (c *httpClient) get(ctx context.Context, path string, q url.Values) ([]byte
 	if err != nil {
 		return nil, classifyTransport(path, err)
 	}
-	req.SetBasicAuth(c.cfg.ClientID, c.cfg.ClientSecret)
+	if c.cfg.BearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.cfg.BearerToken)
+	} else {
+		req.SetBasicAuth(c.cfg.ClientID, c.cfg.ClientSecret)
+	}
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -253,6 +257,9 @@ func (c *httpClient) get(ctx context.Context, path string, q url.Values) ([]byte
 		}
 		if c.cfg.ClientSecret != "" {
 			casdoorMsg = strings.ReplaceAll(casdoorMsg, c.cfg.ClientSecret, "***")
+		}
+		if c.cfg.BearerToken != "" {
+			casdoorMsg = strings.ReplaceAll(casdoorMsg, c.cfg.BearerToken, "***")
 		}
 	} else if resp.StatusCode < 300 {
 		return nil, &APIError{Kind: KindUnexpectedPayload, API: path, StatusCode: resp.StatusCode, Message: "unexpected payload shape"}
@@ -287,12 +294,13 @@ func parseList(api string, body []byte) ([]map[string]any, int, error) {
 			}
 		}
 	}
-	total := len(items)
-	if len(resp.Data2) > 0 {
+	total := -1 // absence is not an authoritative total
+	if len(resp.Data2) > 0 && string(resp.Data2) != "null" {
 		var n int
-		if err := json.Unmarshal(resp.Data2, &n); err == nil && n > 0 {
-			total = n
+		if err := json.Unmarshal(resp.Data2, &n); err != nil || n < 0 {
+			return nil, 0, &APIError{Kind: KindUnexpectedPayload, API: api, Message: "invalid directory total"}
 		}
+		total = n
 	}
 	return items, total, nil
 }

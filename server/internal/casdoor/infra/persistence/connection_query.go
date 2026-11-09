@@ -18,7 +18,7 @@ func (r *ConnectionQuery) ListVisibleConnections(ctx context.Context, accountID 
 	if accountID == 0 {
 		return nil, fmt.Errorf("account required")
 	}
-	query := r.db.WithContext(ctx).Where("t_casdoor_connection.is_deleted = 0")
+	query := r.db.WithContext(ctx).Where("t_casdoor_connection.is_deleted = 0 AND t_casdoor_connection.service_id = 0")
 	if accountID != consts.AdminId {
 		subquery := r.db.Model(&entity.ConnectionScope{}).Select("connection_id").
 			Where("account_id = ? AND is_deleted = 0 AND scope IN ?", accountID, []string{"read", "manage"})

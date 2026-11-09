@@ -36,7 +36,7 @@ func TestCompositionBuildsStandaloneServices(t *testing.T) {
 func TestStartupRegistersReachableDirectoryEndpoints(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&entity.Connection{}, &entity.Application{}, &entity.User{}, &entity.DirectoryObject{}, &entity.Change{}))
+	require.NoError(t, db.AutoMigrate(&entity.Connection{}, &entity.Application{}, &entity.User{}, &entity.DirectoryObject{}, &entity.Change{}, &entity.Service{}, &entity.ManagementCredential{}, &entity.ServiceOrganization{}, &entity.ServiceScope{}))
 	previousDB, previousConfig := global.Db, config.Conf
 	global.Db, config.Conf = db, &config.Config{Aes: config.Aes{Key: "1234567890123456"}}
 	t.Cleanup(func() { global.Db, config.Conf = previousDB, previousConfig })
@@ -50,7 +50,7 @@ func TestStartupRegistersReachableDirectoryEndpoints(t *testing.T) {
 		}
 		req.BatchSetGroup(router.Group("/api/casdoor"), confs.Confs)
 	}
-	for _, path := range []string{"connections", "applications?connectionId=1", "users?connectionId=1", "objects?connectionId=1&kind=role", "operations?connectionId=1"} {
+	for _, path := range []string{"connections", "services", "service-capabilities", "applications?connectionId=1", "users?connectionId=1", "objects?connectionId=1&kind=role", "operations?connectionId=1"} {
 		request := httptest.NewRequest(http.MethodGet, "/api/casdoor/"+path, nil)
 		request = request.WithContext(contextx.WithLoginAccount(context.Background(), &model.LoginAccount{Id: 1}))
 		response := httptest.NewRecorder()

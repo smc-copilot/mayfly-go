@@ -9,20 +9,47 @@ import (
 )
 
 type fakeDirectoryReader struct {
-	pages    [][]directory.Application
-	failPage int
-	calls    int
+	pages      [][]directory.Application
+	failPage   int
+	calls      int
+	knownTotal *int
+	clamp      bool
 }
 
 func (f *fakeDirectoryReader) ListApplications(_ context.Context, page, _ int) ([]directory.Application, int, error) {
 	f.calls++
+	total := -1
+	if f.knownTotal != nil {
+		total = *f.knownTotal
+	}
+	if f.clamp && page > len(f.pages) {
+		page = len(f.pages)
+	}
 	if page == f.failPage {
 		return nil, 0, errors.New("page failed")
 	}
 	if page > len(f.pages) {
-		return nil, 2, nil
+		return nil, total, nil
 	}
-	return f.pages[page-1], 2, nil
+	return f.pages[page-1], total, nil
+}
+
+func TestFetchApplicationsStopsAtDeclaredTotalWhenServerClampsLastPage(t *testing.T) {
+	total := 2
+	reader := &fakeDirectoryReader{pages: [][]directory.Application{{{SourceID: "admin/one"}}, {{SourceID: "admin/two"}}}, knownTotal: &total, clamp: true}
+	items, err := FetchApplications(context.Background(), reader, 1)
+	if err != nil || len(items) != 2 || reader.calls != 2 {
+		t.Fatalf("declared total must end paging: len=%d calls=%d err=%v", len(items), reader.calls, err)
+	}
+}
+
+func TestFetchApplicationsRejectsEmptyPageBeforeDeclaredTotal(t *testing.T) {
+	total := 2
+	reader := &fakeDirectoryReader{pages: [][]directory.Application{{{SourceID: "admin/one"}}}, knownTotal: &total}
+	items, err := FetchApplications(context.Background(), reader, 1)
+	if err == nil || items != nil {
+		t.Fatalf("short read must not replace snapshot: %v %v", items, err)
+	}
 }
 
 func (f *fakeDirectoryReader) ListUsers(context.Context, int, int) ([]directory.User, int, error) {

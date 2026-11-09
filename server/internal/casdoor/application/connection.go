@@ -66,6 +66,9 @@ func (s *ConnectionService) Save(ctx context.Context, input *entity.Connection, 
 		if saved == nil {
 			return errorx.NewBizI(ctx, imsg.ErrConnectionNotFound)
 		}
+		if saved.ServiceID != 0 {
+			return errorx.NewBizI(ctx, imsg.ErrServiceOrganizationInvalid)
+		}
 		if strings.TrimRight(saved.ServerURL, "/") != candidate.ServerURL || saved.Organization != candidate.Organization {
 			return errorx.NewBizI(ctx, imsg.ErrConnectionTargetImmutable)
 		}

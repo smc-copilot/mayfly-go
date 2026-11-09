@@ -46,6 +46,9 @@ func (s *SyncService) Sync(ctx context.Context, id uint64) (*DirectorySyncResult
 	if conn == nil {
 		return nil, fmt.Errorf("connection not found")
 	}
+	if conn.ServiceID != 0 {
+		return nil, fmt.Errorf("use_service_organization_sync")
+	}
 	secret, err := s.secrets.Decrypt(conn.ClientSecretEnc)
 	if err != nil {
 		err := fmt.Errorf("credential unavailable")

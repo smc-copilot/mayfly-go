@@ -10,6 +10,7 @@ import (
 	"mayfly-go/internal/pkg/config"
 	"mayfly-go/pkg/global"
 	"mayfly-go/pkg/ioc"
+	"mayfly-go/pkg/logx"
 	"mayfly-go/pkg/starter"
 
 	"gorm.io/gorm"
@@ -17,11 +18,22 @@ import (
 
 func init() {
 	starter.AddInitIocFunc(registerServices)
+	starter.AddInitFunc(func() {
+		if err := ioc.Get[*api.ServiceAPI]().Manager.StartScheduler(); err != nil {
+			logx.ErrorTrace("start casdoor service scheduler", err)
+		}
+	})
 }
 
 func registerServices() {
 	ioc.Register(application.NewIntegrationRegistry())
 	ioc.Register(BuildDirectoryAPI(global.Db, config.Conf.Aes))
+	ioc.Register(BuildServiceAPI(global.Db, config.Conf.Aes))
+}
+
+func BuildServiceAPI(db *gorm.DB, aes config.Aes) *api.ServiceAPI {
+	deps := application.ServiceDependencies{Locks: application.NewConnectionLocks(), Snapshots: persistence.NewSnapshotRepository(db), State: persistence.NewSyncStateRepository(db), Objects: persistence.NewObjectSnapshotRepository(db), ObjectState: persistence.NewObjectSyncStateRepository(db), Query: persistence.NewDirectoryQuery(db), Operations: persistence.NewOperationQuery(db), Connections: persistence.NewConnectionRepository(db)}
+	return &api.ServiceAPI{Manager: application.NewServiceManager(persistence.NewServiceRepository(db), secret.NewAESCodec(aes), client.NewOAuthGateway(), deps)}
 }
 
 // BuildDirectoryAPI 创建独立模块的只读目录服务；调用方决定何时注册路由。

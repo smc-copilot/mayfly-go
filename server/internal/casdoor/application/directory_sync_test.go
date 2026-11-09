@@ -21,16 +21,16 @@ func (f *fakeSyncReader) ListApplications(_ context.Context, page, _ int) ([]dir
 		return nil, 0, errors.New("application page failed")
 	}
 	if page > len(f.apps) {
-		return nil, 0, nil
+		return nil, -1, nil
 	}
-	return f.apps[page-1], len(f.apps), nil
+	return f.apps[page-1], -1, nil
 }
 
 func (f *fakeSyncReader) ListUsers(_ context.Context, page, _ int) ([]directory.User, int, error) {
 	if page > len(f.users) {
-		return nil, 0, nil
+		return nil, -1, nil
 	}
-	return f.users[page-1], len(f.users), nil
+	return f.users[page-1], -1, nil
 }
 
 type fakeSnapshots struct {

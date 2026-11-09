@@ -49,6 +49,13 @@ type ProbeConfig struct {
 	ClientSecret string
 	Timeout      time.Duration
 	TLSVerify    bool
+	BearerToken  string
+}
+
+type Organization struct {
+	SourceID    string `json:"sourceId"`
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName"`
 }
 
 type Prober interface {

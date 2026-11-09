@@ -33,6 +33,17 @@ func TestCasdoorObjectSyncStateMigrationIsIdempotent(t *testing.T) {
 	require.True(t, db.Migrator().HasTable(&casdoorentity.ObjectSyncState{}))
 }
 
+func TestCasdoorServiceMigrationPreservesLegacyConnections(t *testing.T) {
+	db := prepareCasdoorDirectoryMigration(t)
+	migrate := findMigration(t, "v1.12.3-casdoor-service-connections")
+	require.NoError(t, migrate(db))
+	require.NoError(t, migrate(db))
+	for _, row := range []any{&casdoorentity.Service{}, &casdoorentity.ManagementCredential{}, &casdoorentity.ServiceOrganization{}, &casdoorentity.ServiceScope{}} {
+		require.True(t, db.Migrator().HasTable(row))
+	}
+	require.True(t, db.Migrator().HasColumn(&casdoorentity.Connection{}, "service_id"))
+}
+
 func TestIndependentCasdoorDirectoryCopiesStableReferences(t *testing.T) {
 	db := prepareCasdoorDirectoryMigration(t)
 	connection := &octopentity.CasdoorConnection{

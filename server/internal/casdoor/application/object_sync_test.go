@@ -17,9 +17,9 @@ func (f fakeObjectReader) ListObjects(_ context.Context, _ string, page, _ int) 
 		return nil, 0, errors.New("page failed")
 	}
 	if page == 1 {
-		return []directory.Object{{SourceID: "org/role", Projection: `{}`}}, 1, nil
+		return []directory.Object{{SourceID: "org/role", Projection: `{}`}}, -1, nil
 	}
-	return nil, 0, nil
+	return nil, -1, nil
 }
 
 type fakeObjects struct{ calls int }
