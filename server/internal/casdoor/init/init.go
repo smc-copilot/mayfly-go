@@ -8,6 +8,7 @@ import (
 	"mayfly-go/internal/casdoor/infra/persistence"
 	"mayfly-go/internal/casdoor/infra/secret"
 	"mayfly-go/internal/pkg/config"
+	"mayfly-go/pkg/global"
 	"mayfly-go/pkg/ioc"
 	"mayfly-go/pkg/starter"
 
@@ -15,9 +16,12 @@ import (
 )
 
 func init() {
-	starter.AddInitIocFunc(func() {
-		ioc.Register(application.NewIntegrationRegistry())
-	})
+	starter.AddInitIocFunc(registerServices)
+}
+
+func registerServices() {
+	ioc.Register(application.NewIntegrationRegistry())
+	ioc.Register(BuildDirectoryAPI(global.Db, config.Conf.Aes))
 }
 
 // BuildDirectoryAPI 创建独立模块的只读目录服务；调用方决定何时注册路由。
