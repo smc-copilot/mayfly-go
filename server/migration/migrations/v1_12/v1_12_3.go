@@ -1,6 +1,11 @@
 package v112
 
 import (
+	"fmt"
+	"strings"
+	"time"
+
+	casdoorentity "mayfly-go/internal/casdoor/domain/entity"
 	dbentity "mayfly-go/internal/db/domain/entity"
 	octopentity "mayfly-go/internal/octop/domain/entity"
 	"mayfly-go/migration/migrations/migrationx"
@@ -228,7 +233,229 @@ func v1123() []*gormigrate.Migration {
 			},
 			Rollback: migrationx.NoopRollback,
 		},
+		{
+			ID: "v1.12.3-casdoor-core-schema",
+			Migrate: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(
+					&casdoorentity.Connection{},
+					&casdoorentity.Application{},
+					&casdoorentity.User{},
+					&casdoorentity.AuthRelation{},
+					&casdoorentity.DirectoryObject{},
+					&casdoorentity.ConnectionScope{},
+					&casdoorentity.ManagedApplication{},
+					&casdoorentity.Change{},
+				)
+			},
+			Rollback: migrationx.NoopRollback,
+		},
+		{
+			ID: "v1.12.3-casdoor-directory-data",
+			Migrate: func(tx *gorm.DB) error {
+				return tx.Transaction(copyCasdoorDirectory)
+			},
+			Rollback: migrationx.NoopRollback,
+		},
+		{
+			ID: "v1.12.3-casdoor-management-resources",
+			Migrate: func(tx *gorm.DB) error {
+				return tx.Transaction(migrateCasdoorResources)
+			},
+			Rollback: migrationx.NoopRollback,
+		},
 	}
+}
+
+// copyCasdoorDirectory 保留旧目录的主键及全部公共列。目标行不一致时停止，
+// 不覆盖目标库中的数据；SQL 只绑定主键，避免将凭证材料写入日志。
+func copyCasdoorDirectory(tx *gorm.DB) error {
+	tables := [][2]string{
+		{"t_octop_casdoor_connection", "t_casdoor_connection"},
+		{"t_octop_casdoor_app", "t_casdoor_application"},
+		{"t_octop_casdoor_user", "t_casdoor_user"},
+		{"t_octop_casdoor_auth", "t_casdoor_auth_relation"},
+	}
+	for _, table := range tables {
+		if err := copyCasdoorTable(tx, table[0], table[1]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func copyCasdoorTable(tx *gorm.DB, source, target string) error {
+	if !tx.Migrator().HasTable(source) || !tx.Migrator().HasTable(target) {
+		return fmt.Errorf("casdoor directory migration requires tables %s and %s", source, target)
+	}
+	sourceTypes, err := tx.Migrator().ColumnTypes(source)
+	if err != nil {
+		return err
+	}
+	targetTypes, err := tx.Migrator().ColumnTypes(target)
+	if err != nil {
+		return err
+	}
+	targetColumns := make(map[string]bool, len(targetTypes))
+	for _, column := range targetTypes {
+		targetColumns[column.Name()] = true
+	}
+	columns := make([]string, 0, len(sourceTypes))
+	quoted := make([]string, 0, len(sourceTypes))
+	for _, column := range sourceTypes {
+		name := column.Name()
+		if !targetColumns[name] {
+			return fmt.Errorf("casdoor directory target %s lacks column %s", target, name)
+		}
+		columns = append(columns, name)
+		quoted = append(quoted, tx.Statement.Quote(name))
+	}
+	var sourceRows []map[string]any
+	if err := tx.Table(source).Find(&sourceRows).Error; err != nil {
+		return err
+	}
+	for _, row := range sourceRows {
+		id, ok := row["id"]
+		if !ok || id == nil {
+			return fmt.Errorf("casdoor directory source %s has a row without id", source)
+		}
+		var existing []map[string]any
+		if err := tx.Table(target).Where("id = ?", id).Find(&existing).Error; err != nil {
+			return err
+		}
+		if len(existing) > 0 {
+			for _, name := range columns {
+				if casdoorMigrationValue(row[name]) != casdoorMigrationValue(existing[0][name]) {
+					return fmt.Errorf("casdoor directory target %s id %v conflicts with source", target, id)
+				}
+			}
+			continue
+		}
+		columnSQL := strings.Join(quoted, ", ")
+		query := fmt.Sprintf("INSERT INTO %s (%s) SELECT %s FROM %s WHERE %s = ?",
+			tx.Statement.Quote(target), columnSQL, columnSQL, tx.Statement.Quote(source), tx.Statement.Quote("id"))
+		if err := tx.Exec(query, id).Error; err != nil {
+			return err
+		}
+	}
+	if tx.Dialector.Name() == "postgres" {
+		quotedTarget := tx.Statement.Quote(target)
+		query := fmt.Sprintf("SELECT setval(pg_get_serial_sequence(?, 'id'), COALESCE(MAX(id), 1), COUNT(*) > 0) FROM %s", quotedTarget)
+		if err := tx.Exec(query, target).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func casdoorMigrationValue(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return "null:"
+	case []byte:
+		return "value:" + string(v)
+	case time.Time:
+		return "time:" + v.UTC().Format(time.RFC3339Nano)
+	default:
+		return "value:" + fmt.Sprint(v)
+	}
+}
+
+// migrateCasdoorResources 迁移旧入口及既有读取角色；新增远端写权限不自动授权。
+func migrateCasdoorResources(tx *gorm.DB) error {
+	const rootID int64 = 1750000004
+	const oldReadID int64 = 1750000015
+	const oldSaveID int64 = 1750000016
+	var count int64
+	if err := tx.Table("t_sys_resource").Where("id = ? AND is_deleted = 0", rootID).Count(&count).Error; err != nil {
+		return err
+	}
+	if count != 1 {
+		return fmt.Errorf("existing casdoor menu is missing or deleted")
+	}
+	if err := tx.Table("t_sys_resource").Where("code = ? AND id <> ? AND is_deleted = 0", "/casdoor", rootID).Count(&count).Error; err != nil {
+		return err
+	}
+	if count != 0 {
+		return fmt.Errorf("casdoor menu path already exists")
+	}
+	var descendants []struct {
+		Id     int64
+		UiPath string
+	}
+	const oldPrefix = "Octop001/Casd0001/"
+	const newPrefix = "Casd0001/"
+	if err := tx.Table("t_sys_resource").Select("id, ui_path").
+		Where("ui_path LIKE ? AND id <> ? AND is_deleted = 0", oldPrefix+"%", rootID).Find(&descendants).Error; err != nil {
+		return err
+	}
+	for _, row := range descendants {
+		path := newPrefix + strings.TrimPrefix(row.UiPath, oldPrefix)
+		if err := tx.Table("t_sys_resource").Where("id = ?", row.Id).Update("ui_path", path).Error; err != nil {
+			return err
+		}
+	}
+	if err := tx.Table("t_sys_resource").Where("id = ?", rootID).Updates(map[string]any{
+		"pid": 0, "ui_path": newPrefix, "code": "/casdoor", "name": "menu.casdoor",
+		"meta": `{"icon":"User","routeName":"CasdoorCenter","redirect":"/casdoor/applications"}`,
+	}).Error; err != nil {
+		return err
+	}
+	resources := []migrationx.ResourceDef{
+		migrationx.Resource(1750010001, rootID, "Casd0001/Conn0001/", 1, "menu.casdoorConnections", "connections", 10000000, `{"component":"casdoor/connections/ConnectionList","routeName":"CasdoorConnectionList"}`),
+		migrationx.Resource(1750010002, rootID, "Casd0001/Apps0001/", 1, "menu.casdoorApplications", "applications", 20000000, `{"component":"casdoor/applications/ApplicationList","routeName":"CasdoorApplicationList"}`),
+		migrationx.Resource(1750010003, rootID, "Casd0001/Users001/", 1, "menu.casdoorUsers", "users", 30000000, `{"component":"casdoor/users/UserList","routeName":"CasdoorUserList"}`),
+		migrationx.Resource(1750010004, rootID, "Casd0001/Access01/", 1, "menu.casdoorAccess", "access", 40000000, `{"component":"casdoor/access/AccessManagement","routeName":"CasdoorAccessManagement"}`),
+		migrationx.Resource(1750010005, rootID, "Casd0001/Ops00001/", 1, "menu.casdoorOperations", "operations", 50000000, `{"component":"casdoor/operations/OperationList","routeName":"CasdoorOperationList"}`),
+		migrationx.Resource(1750010010, rootID, "Casd0001/Perm0010/", 2, "menu.casdoorRead", "casdoor:read", 10000000, ""),
+		migrationx.Resource(1750010011, rootID, "Casd0001/Perm0011/", 2, "menu.casdoorConnectionManage", "casdoor:connection:manage", 11000000, ""),
+		migrationx.Resource(1750010012, rootID, "Casd0001/Perm0012/", 2, "menu.casdoorConnectionScope", "casdoor:connection:scope", 12000000, ""),
+		migrationx.Resource(1750010013, rootID, "Casd0001/Perm0013/", 2, "menu.casdoorSync", "casdoor:sync", 13000000, ""),
+		migrationx.Resource(1750010014, rootID, "Casd0001/Perm0014/", 2, "menu.casdoorUserManage", "casdoor:user:manage", 14000000, ""),
+		migrationx.Resource(1750010015, rootID, "Casd0001/Perm0015/", 2, "menu.casdoorUserStatus", "casdoor:user:status", 15000000, ""),
+		migrationx.Resource(1750010016, rootID, "Casd0001/Perm0016/", 2, "menu.casdoorApplicationManage", "casdoor:application:manage", 16000000, ""),
+		migrationx.Resource(1750010017, rootID, "Casd0001/Perm0017/", 2, "menu.casdoorAccessManage", "casdoor:access:manage", 17000000, ""),
+		migrationx.Resource(1750010018, rootID, "Casd0001/Perm0018/", 2, "menu.casdoorAuditRead", "casdoor:audit:read", 18000000, ""),
+		migrationx.Resource(1750010019, rootID, "Casd0001/Perm0019/", 2, "menu.casdoorIntegrationManage", "casdoor:integration:manage", 19000000, ""),
+	}
+	for _, resource := range resources {
+		var existing []struct {
+			Id   int64
+			Pid  int64
+			Type int8
+			Code string
+		}
+		if err := tx.Table("t_sys_resource").Select("id, pid, type, code").
+			Where("id = ?", resource.Id).Find(&existing).Error; err != nil {
+			return err
+		}
+		if len(existing) > 0 && (existing[0].Pid != resource.Pid || existing[0].Type != resource.Typ || existing[0].Code != resource.Code) {
+			return fmt.Errorf("casdoor resource id %d already belongs to a different resource", resource.Id)
+		}
+		query := tx.Table("t_sys_resource").Where("code = ? AND id <> ? AND type = ? AND is_deleted = 0", resource.Code, resource.Id, resource.Typ)
+		if resource.Typ == 1 {
+			query = query.Where("pid = ?", resource.Pid)
+		}
+		if err := query.Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return fmt.Errorf("casdoor resource code %s already exists", resource.Code)
+		}
+		if err := migrationx.InsertResource(tx, resource); err != nil {
+			return err
+		}
+	}
+	for _, resourceID := range []int64{rootID, 1750010001, 1750010002, 1750010003, 1750010004, 1750010010} {
+		if err := migrationx.GrantResourceToParentRoles(tx, oldReadID, resourceID); err != nil {
+			return err
+		}
+	}
+	for _, resourceID := range []int64{1750010011, 1750010013} {
+		if err := migrationx.GrantResourceToParentRoles(tx, oldSaveID, resourceID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 var octopResources = []migrationx.ResourceDef{
