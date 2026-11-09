@@ -21,8 +21,9 @@ type DirectoryCategoryResult struct {
 }
 
 type DirectorySyncResult struct {
-	Apps  DirectoryCategoryResult
-	Users DirectoryCategoryResult
+	Apps    DirectoryCategoryResult
+	Users   DirectoryCategoryResult
+	Objects map[string]DirectoryCategoryResult
 }
 
 // SyncDirectory 独立采集应用和用户；某类数据未完整读取时保留该类旧快照。

@@ -1,0 +1,20 @@
+export default {
+    casdoor: {
+        connections: '连接管理', create: '新建连接', edit: '编辑连接', server: '服务地址',
+        organization: '组织', owner: '应用 Owner 筛选', clientId: '管理 Client ID', clientSecret: '管理 Client Secret',
+        timeout: '超时（秒）', interval: '同步周期（秒）', tls: '校验 TLS', credential: '凭证状态',
+        configured: '已配置', missing: '未配置', appStatus: '应用同步', userStatus: '用户同步',
+        test: '测试读取', sync: '立即同步', savedSecret: '保留原密钥请留空',
+        scopeWarning: '填写 Owner 后应用目录仅包含该范围，留空读取组织下的应用。',
+        manageWarning: '管理写入能力尚未启用。', testResult: '读取测试结果',
+        service: '服务', apps: '应用', users: '用户', result: '状态', reason: '原因',
+        syncResult: '同步已完成，请检查分项状态。',
+        chooseConnection: '选择连接', search: '搜索', keyword: '输入关键词', applications: '应用管理', userDirectory: '用户管理',
+        displayName: '显示名', username: '用户名', email: '邮箱', sourceId: '来源 ID', status: '状态', lastSync: '最近同步',
+        enabled: '启用', disabled: '禁用', unknown: '未知', absent: '最近完整同步未发现',
+        presence: '源端存在性', present: '源端存在', staleNotice: '目录使用的是上次成功采集的数据，请查看连接同步状态。',
+        operations: '操作记录', actor: '操作者 ID', action: '操作类型', submittedAt: '提交时间', verifiedAt: '核实时间',
+        access: '访问授权', roles: '角色', groups: '群组', permissions: '权限', objectId: '来源标识',
+        accessReadOnly: '当前仅显示已同步的授权依据；不能仅凭角色成员判断用户能否登录。',
+    },
+};

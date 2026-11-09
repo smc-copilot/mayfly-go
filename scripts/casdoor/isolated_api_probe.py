@@ -62,7 +62,7 @@ def main():
     candidates = [app, db]
 
     def redact(value):
-        for secret in (db_password, client_id, client_secret):
+        for secret in (db_password, client_id, client_secret, *(item["clientId"] for item in apps), *(item["clientSecret"] for item in apps)):
             value = value.replace(secret, "[redacted]")
         return value
 
@@ -171,6 +171,25 @@ def main():
         app_data = result.get("data")
         checks = [result.get("status") == "ok" and isinstance(app_data, list) and len(app_data) == 3]
         print("app_read:", result.get("status"), "rows:", len(app_data) if isinstance(app_data, list) else "unknown", flush=True)
+        app_id = "admin/fixture-app-1"
+        before = api("GET", "/api/get-application?" + urllib.parse.urlencode({"id": app_id}))
+        app_before = before.get("data") or {}
+        q = urllib.parse.urlencode({"id": app_id, "columns": "displayName"})
+        result = api("POST", "/api/update-application?" + q,
+                     {"owner": "admin", "name": "fixture-app-1", "organization": org_name,
+                      "clientId": apps[1]["clientId"], "displayName": "Updated app fixture"})
+        check = api("GET", "/api/get-application?" + urllib.parse.urlencode({"id": app_id}))
+        app_after = check.get("data") or {}
+        checks.append(before.get("status") == "ok" and result.get("status") == "ok" and check.get("status") == "ok"
+                      and app_after.get("displayName") == "Updated app fixture"
+                      and app_before.get("clientId") == apps[1]["clientId"]
+                      and app_after.get("clientId") == app_before.get("clientId")
+                      and app_before.get("clientSecret") == apps[1]["clientSecret"]
+                      and app_after.get("clientSecret") == app_before.get("clientSecret"))
+        print("app_partial_update:", result.get("status"), "readback_matches:",
+              app_after.get("displayName") == "Updated app fixture", "secret_verified:",
+              app_before.get("clientSecret") == apps[1]["clientSecret"] and app_after.get("clientSecret") == app_before.get("clientSecret"), "reason:",
+              redact(str(result.get("msg", "")))[:200], flush=True)
         q = urllib.parse.urlencode({"owner": org_name, "p": 1, "pageSize": 10})
         result = api("GET", "/api/get-users?" + q)
         checks.append(result.get("status") == "ok")

@@ -29,6 +29,62 @@ type Client interface {
 	TestUsers(ctx context.Context) error
 	ListApplications(ctx context.Context, page, pageSize int) ([]Application, int, error)
 	ListUsers(ctx context.Context, page, pageSize int) ([]User, int, error)
+	ListObjects(ctx context.Context, kind string, page, pageSize int) ([]directory.Object, int, error)
+}
+
+func (c *httpClient) ListObjects(ctx context.Context, kind string, page, pageSize int) ([]directory.Object, int, error) {
+	paths := map[string]string{"role": "/api/get-roles", "group": "/api/get-groups", "permission": "/api/get-permissions"}
+	path, ok := paths[kind]
+	if !ok || page < 1 || pageSize < 1 {
+		return nil, 0, fmt.Errorf("invalid object query")
+	}
+	q := url.Values{"owner": {c.cfg.Organization}, "p": {fmt.Sprint(page)}, "pageSize": {fmt.Sprint(pageSize)}}
+	body, err := c.get(ctx, path, q)
+	if err != nil {
+		return nil, 0, err
+	}
+	items, total, err := parseList(path, body)
+	if err != nil {
+		return nil, 0, err
+	}
+	fields := []string{"owner", "name", "displayName", "description", "users", "groups", "roles", "domains", "isEnabled", "parentId", "resourceType", "resources", "actions", "effect", "model", "state", "approver", "approveTime", "expireTime"}
+	rows := make([]directory.Object, 0, len(items))
+	for _, item := range items {
+		if str(item, "owner") != c.cfg.Organization || str(item, "name") == "" {
+			return nil, 0, fmt.Errorf("object identity outside connection scope")
+		}
+		projection := make(map[string]any)
+		for _, field := range fields {
+			if value, exists := item[field]; exists {
+				if !safeProjectionValue(value) {
+					return nil, 0, fmt.Errorf("unexpected object projection value")
+				}
+				projection[field] = value
+			}
+		}
+		encoded, err := json.Marshal(projection)
+		if err != nil {
+			return nil, 0, err
+		}
+		rows = append(rows, directory.Object{SourceID: str(item, "owner") + "/" + str(item, "name"), Projection: string(encoded)})
+	}
+	return rows, total, nil
+}
+
+func safeProjectionValue(value any) bool {
+	switch v := value.(type) {
+	case nil, string, bool:
+		return true
+	case []any:
+		for _, item := range v {
+			if _, ok := item.(string); !ok {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 type Application = directory.Application

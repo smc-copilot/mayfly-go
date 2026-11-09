@@ -263,6 +263,11 @@ func v1123() []*gormigrate.Migration {
 			},
 			Rollback: migrationx.NoopRollback,
 		},
+		{
+			ID:       "v1.12.3-casdoor-object-sync-state",
+			Migrate:  func(tx *gorm.DB) error { return tx.AutoMigrate(&casdoorentity.ObjectSyncState{}) },
+			Rollback: migrationx.NoopRollback,
+		},
 	}
 }
 

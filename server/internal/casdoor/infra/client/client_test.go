@@ -95,3 +95,28 @@ func TestPaginationRequiresEmptyPageToConfirmCompletion(t *testing.T) {
 		t.Fatal("空页应结束同步")
 	}
 }
+
+func TestListAuthorizationObjectsUsesOrganizationAndExcludesUnknownFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/get-roles" || r.URL.Query().Get("owner") != "org" {
+			t.Errorf("错误的对象读取范围: %s", r.URL.String())
+		}
+		fmt.Fprint(w, `{"status":"ok","data":[{"owner":"org","name":"team","displayName":"Team","users":["org/alice"],"secret":"must-not-copy"}],"data2":1}`)
+	}))
+	defer server.Close()
+	items, _, err := New(Config{ServerURL: server.URL, Organization: "org"}).ListObjects(context.Background(), "role", 1, 20)
+	if err != nil || len(items) != 1 || items[0].SourceID != "org/team" || strings.Contains(items[0].Projection, "must-not-copy") {
+		t.Fatalf("对象白名单或来源 ID 不正确: %+v %v", items, err)
+	}
+}
+
+func TestListAuthorizationObjectsRejectsNestedUnexpectedProjectionValues(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"status":"ok","data":[{"owner":"org","name":"team","description":{"token":"hidden-value"}}]}`)
+	}))
+	defer server.Close()
+	items, _, err := New(Config{ServerURL: server.URL, Organization: "org"}).ListObjects(context.Background(), "role", 1, 20)
+	if err == nil || len(items) != 0 {
+		t.Fatal("对象投影不得复制不受支持的嵌套结构")
+	}
+}

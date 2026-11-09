@@ -1,5 +1,11 @@
 export default {
     menu: {
+        casdoor: 'Casdoor 管理中心',
+        casdoorConnections: '连接管理',
+        casdoorApplications: '应用管理',
+        casdoorUsers: '用户管理',
+        casdoorAccess: '访问授权',
+        casdoorOperations: '操作记录',
         index: '首页',
         personalCenter: '个人中心',
         myResource: '我的资源',

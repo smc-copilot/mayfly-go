@@ -1,5 +1,11 @@
 export default {
     menu: {
+        casdoor: 'Casdoor management',
+        casdoorConnections: 'Connections',
+        casdoorApplications: 'Applications',
+        casdoorUsers: 'Users',
+        casdoorAccess: 'Access management',
+        casdoorOperations: 'Operations',
         index: 'Home',
         personalCenter: 'Personal Center',
         myResource: 'My Resources',

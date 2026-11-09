@@ -1,0 +1,20 @@
+export default {
+    casdoor: {
+        connections: 'Connections', create: 'New connection', edit: 'Edit connection', server: 'Server URL',
+        organization: 'Organization', owner: 'Application owner filter', clientId: 'Management client ID', clientSecret: 'Management client secret',
+        timeout: 'Timeout (seconds)', interval: 'Sync interval (seconds)', tls: 'Verify TLS', credential: 'Credential',
+        configured: 'Configured', missing: 'Not configured', appStatus: 'Application sync', userStatus: 'User sync',
+        test: 'Test read access', sync: 'Sync now', savedSecret: 'Leave empty to retain the existing secret',
+        scopeWarning: 'An owner filter limits applications to that owner; leave it empty for the organization.',
+        manageWarning: 'Management write access is not yet enabled.', testResult: 'Read test results',
+        service: 'Service', apps: 'Applications', users: 'Users', result: 'Status', reason: 'Reason',
+        syncResult: 'Synchronization finished; check the category results.',
+        chooseConnection: 'Select connection', search: 'Search', keyword: 'Enter a keyword', applications: 'Applications', userDirectory: 'Users',
+        displayName: 'Display name', username: 'Username', email: 'Email', sourceId: 'Source ID', status: 'Status', lastSync: 'Last sync',
+        enabled: 'Enabled', disabled: 'Disabled', unknown: 'Unknown', absent: 'Not found in latest complete sync',
+        presence: 'Source presence', present: 'Present', staleNotice: 'Showing the last successful snapshot; check the connection sync status.',
+        operations: 'Operations', actor: 'Actor ID', action: 'Action', submittedAt: 'Submitted at', verifiedAt: 'Verified at',
+        access: 'Access management', roles: 'Roles', groups: 'Groups', permissions: 'Permissions', objectId: 'Source identifier',
+        accessReadOnly: 'Only synchronized authorization evidence is shown. Role membership alone does not establish login access.',
+    },
+};

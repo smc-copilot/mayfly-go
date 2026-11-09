@@ -25,6 +25,14 @@ func prepareCasdoorDirectoryMigration(t *testing.T) *gorm.DB {
 	return db
 }
 
+func TestCasdoorObjectSyncStateMigrationIsIdempotent(t *testing.T) {
+	db := openCronMigDB(t)
+	migrate := findMigration(t, "v1.12.3-casdoor-object-sync-state")
+	require.NoError(t, migrate(db))
+	require.NoError(t, migrate(db))
+	require.True(t, db.Migrator().HasTable(&casdoorentity.ObjectSyncState{}))
+}
+
 func TestIndependentCasdoorDirectoryCopiesStableReferences(t *testing.T) {
 	db := prepareCasdoorDirectoryMigration(t)
 	connection := &octopentity.CasdoorConnection{

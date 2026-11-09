@@ -31,6 +31,11 @@ type User struct {
 	UpdatedAt    string
 }
 
+type Object struct {
+	SourceID   string
+	Projection string
+}
+
 type Reader interface {
 	ListApplications(ctx context.Context, page, pageSize int) ([]Application, int, error)
 	ListUsers(ctx context.Context, page, pageSize int) ([]User, int, error)

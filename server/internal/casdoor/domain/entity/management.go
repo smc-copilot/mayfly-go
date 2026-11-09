@@ -20,6 +20,20 @@ type DirectoryObject struct {
 
 func (DirectoryObject) TableName() string { return "t_casdoor_object" }
 
+// ObjectSyncState records the last attempt and successful snapshot per object kind.
+type ObjectSyncState struct {
+	model.Model
+	ConnectionId uint64     `json:"connectionId" gorm:"not null;uniqueIndex:uk_casdoor_object_sync"`
+	Kind         string     `json:"kind" gorm:"size:16;not null;uniqueIndex:uk_casdoor_object_sync"`
+	Status       string     `json:"status" gorm:"size:16"`
+	AttemptAt    *time.Time `json:"attemptAt"`
+	SuccessAt    *time.Time `json:"successAt"`
+	Count        int        `json:"count"`
+	ReasonCode   string     `json:"reasonCode" gorm:"size:64"`
+}
+
+func (ObjectSyncState) TableName() string { return "t_casdoor_object_sync" }
+
 // ConnectionScope 限制 Mayfly 账号可管理的 Casdoor 连接。
 type ConnectionScope struct {
 	model.Model
