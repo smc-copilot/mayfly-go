@@ -52,3 +52,20 @@ export const OctopGapEnum = {
     SourcePurged: EnumValue.of('source_purged', 'octop.gapSourcePurged').tagTypeWarning(),
     Unsupported: EnumValue.of('unsupported', 'octop.gapUnsupported').tagTypeInfo(),
 };
+
+export const OctopSourceStateEnum = {
+    Ready: EnumValue.of('ready', 'octop.stateReady').tagTypeSuccess(),
+    NotConfigured: EnumValue.of('not_configured', 'octop.stateNotConfigured').tagTypeInfo(),
+    NotVerified: EnumValue.of('not_verified', 'octop.stateNotVerified').tagTypeWarning(),
+    Unsupported: EnumValue.of('unsupported', 'octop.stateUnsupported').tagTypeInfo(),
+    Forbidden: EnumValue.of('forbidden', 'octop.stateForbidden').tagTypeDanger(),
+    Failed: EnumValue.of('failed', 'octop.stateFailed').tagTypeDanger(),
+    Partial: EnumValue.of('partial', 'octop.statePartial').tagTypeWarning(),
+};
+
+/** Octop 用户/专家启用状态：与后端 int8 一致（1 / -1 / 0） */
+export const OctopUserStatusEnum = {
+    Enabled: EnumValue.of(1, 'octop.userEnabled').tagTypeSuccess(),
+    Disabled: EnumValue.of(-1, 'octop.userDisabled').tagTypeDanger(),
+    Unknown: EnumValue.of(0, 'octop.statusUnknown').tagTypeInfo(),
+};

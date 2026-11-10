@@ -478,6 +478,32 @@ func (r *settingsRepoImpl) GetOrCreate(ctx context.Context) (*entity.OctopSettin
 	return row, nil
 }
 
+type readConnectionRepoImpl struct {
+	base.RepoImpl[*entity.OctopReadConnection]
+}
+
+func newReadConnectionRepo() repository.ReadConnection {
+	return &readConnectionRepoImpl{}
+}
+
+func (r *readConnectionRepoImpl) GetByInstanceType(ctx context.Context, instanceId uint64, connType string) (*entity.OctopReadConnection, error) {
+	_ = ctx
+	var row entity.OctopReadConnection
+	err := r.GetByCond(model.NewCond().Eq("instance_id", instanceId).Eq("type", connType).Dest(&row))
+	if err != nil {
+		if model.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &row, nil
+}
+
+func (r *readConnectionRepoImpl) ListByInstance(ctx context.Context, instanceId uint64) ([]*entity.OctopReadConnection, error) {
+	_ = ctx
+	return r.SelectByCond(model.NewCond().Eq("instance_id", instanceId))
+}
+
 func toSet(ids []string) map[string]struct{} {
 	out := make(map[string]struct{}, len(ids))
 	for _, id := range ids {

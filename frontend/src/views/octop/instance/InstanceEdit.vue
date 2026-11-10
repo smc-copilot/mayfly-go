@@ -77,6 +77,7 @@
             <div>{{ $t('octop.pg') }}: {{ testResult.pg.status }} {{ testResult.pg.reason }}</div>
             <div>{{ testResult.saved === 'pending_fix' ? $t('octop.pendingFix') : $t('octop.normal') }}</div>
         </div>
+        <read-connection-form v-if="data?.id" :instance-id="data.id" />
         <template #footer>
             <el-button @click="visibleProxy = false">{{ $t('common.cancel') }}</el-button>
             <el-button @click="onTest">{{ $t('octop.testConn') }}</el-button>
@@ -92,6 +93,7 @@ import { machineApi } from '@/views/ops/machine/api';
 import { dbApi } from '@/views/ops/db/api';
 import { octopInstanceApi } from '../api';
 import type { ConnTestResult, OctopInstance } from '../types';
+import ReadConnectionForm from './ReadConnectionForm.vue';
 
 const props = defineProps<{ visible: boolean; data?: OctopInstance | null }>();
 const emit = defineEmits<{ 'update:visible': [boolean]; success: [] }>();

@@ -91,6 +91,8 @@ const columns = [
     TableColumn.new('action', 'common.operation')
         .setActions<InstanceOverview>([
             { key: 'detail', label: 'octop.instanceDetail', type: 'primary', onClick: (row) => goDetail(row.id) },
+            { key: 'users', label: 'octop.instanceUsers', type: 'primary', perm: 'octop:user:base', onClick: (row) => goUsers(row.id) },
+            { key: 'library', label: 'octop.instanceLibrary', type: 'primary', perm: 'octop:library:base', onClick: (row) => goLibrary(row.id) },
             { key: 'edit', label: 'common.edit', type: 'primary', perm: 'octop:instance:save', onClick: (row) => onEdit(row) },
         ])
         .fixedRight(),
@@ -126,6 +128,12 @@ const onSaved = () => {
 };
 const goDetail = (id: number) => {
     router.push({ name: 'OctopInstanceDetail', query: { id: String(id) } });
+};
+const goUsers = (id: number) => {
+    router.push({ name: 'OctopInstanceUsers', query: { instanceId: String(id) } });
+};
+const goLibrary = (id: number) => {
+    router.push({ name: 'OctopInstanceLibrary', query: { instanceId: String(id) } });
 };
 
 const saveSettings = async () => {

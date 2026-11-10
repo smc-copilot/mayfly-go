@@ -33,6 +33,7 @@ type Instance interface {
 	BindCasdoorApp(ctx context.Context, instanceId, appSnapshotId uint64) error
 	VisibleInstanceIDs(ctx context.Context) ([]uint64, error)
 	AssertInstanceAccess(ctx context.Context, inst *entity.OctopInstance) error
+	GetVisible(ctx context.Context, id uint64) (*entity.OctopInstance, error)
 	CollectOne(ctx context.Context, inst *entity.OctopInstance) error
 	MetricRange(ctx context.Context, instanceId uint64, start, end time.Time) ([]*entity.OctopMetricSample, error)
 	InitMetricCron()

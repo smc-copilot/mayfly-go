@@ -50,6 +50,45 @@ func TestV1123ContainsOctopTables(t *testing.T) {
 	t.Fatalf("v1.12.3 批次缺少 %s 迁移", wantID)
 }
 
+func TestV1123ContainsOctopReadConnection(t *testing.T) {
+	const wantID = "v1.12.3-octop-read-connection"
+	for _, m := range v1123() {
+		if m.ID == wantID {
+			require.NotNil(t, m.Migrate)
+			return
+		}
+	}
+	t.Fatalf("v1.12.3 批次缺少 %s 迁移", wantID)
+}
+
+func TestV1123ContainsOctopBusinessResources(t *testing.T) {
+	const wantID = "v1.12.3-octop-business-resources"
+	for _, m := range v1123() {
+		if m.ID == wantID {
+			require.NotNil(t, m.Migrate)
+			return
+		}
+	}
+	t.Fatalf("v1.12.3 批次缺少 %s 迁移", wantID)
+}
+
+func TestOctopBusinessResourcesCodes(t *testing.T) {
+	want := map[string]bool{
+		"octop:user:base": true, "octop:library:base": true, "octop:expert:read": true,
+		"octop:session:base": true, "octop:trace:base": true, "octop:content:read": true,
+		"octop:integration:save": true,
+	}
+	found := map[string]bool{}
+	for _, r := range octopBusinessResources {
+		if want[r.Code] {
+			found[r.Code] = true
+		}
+	}
+	for code := range want {
+		require.True(t, found[code], "缺少权限码 %s", code)
+	}
+}
+
 // TestV1123ContainsDbInstanceTlsMaterial 钉住本批次承载的 TLS 材料列迁移。
 //
 // 该列是 DB 实例 TLS 的存储前提：缺了它，保存带证书的实例会因未知列失败，

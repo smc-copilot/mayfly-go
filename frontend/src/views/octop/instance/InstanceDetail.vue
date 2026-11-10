@@ -6,6 +6,8 @@
                 <el-select v-model="instanceId" filterable :placeholder="$t('octop.selectInstance')" class="w-64" @change="load">
                     <el-option v-for="item in instances" :key="item.id" :label="item.name" :value="item.id" />
                 </el-select>
+                <el-button v-if="instanceId" v-auth="'octop:user:base'" @click="goUsers">{{ $t('octop.instanceUsers') }}</el-button>
+                <el-button v-if="instanceId" v-auth="'octop:library:base'" @click="goLibrary">{{ $t('octop.instanceLibrary') }}</el-button>
                 <el-button v-if="detail?.canRestart" v-auth="'octop:instance:restart'" type="danger" @click="onRestart">{{ $t('octop.restart') }}</el-button>
                 <el-button link type="primary" icon="refresh" @click="load">{{ $t('common.refresh') }}</el-button>
             </div>
@@ -63,7 +65,7 @@
 
 <script lang="ts" setup>
 import { computed, onMounted, ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import ECharts from '@/components/echarts/ECharts.vue';
 import type { ECOption } from '@/components/echarts/config';
@@ -76,6 +78,7 @@ import { formatShanghai } from '../time';
 
 const { t } = useI18n();
 const route = useRoute();
+const router = useRouter();
 const instanceId = ref<number | undefined>();
 const instances = ref<InstanceOverview[]>([]);
 const detail = ref<InstanceDetail | null>(null);
@@ -158,6 +161,15 @@ const onRestart = async () => {
     if (!(await useI18nConfirm('octop.restartConfirm'))) return;
     await octopInstanceApi.restart.request({ id: instanceId.value });
     await load();
+};
+
+const goUsers = () => {
+    if (!instanceId.value) return;
+    router.push({ name: 'OctopInstanceUsers', query: { instanceId: String(instanceId.value) } });
+};
+const goLibrary = () => {
+    if (!instanceId.value) return;
+    router.push({ name: 'OctopInstanceLibrary', query: { instanceId: String(instanceId.value) } });
 };
 
 onMounted(load);

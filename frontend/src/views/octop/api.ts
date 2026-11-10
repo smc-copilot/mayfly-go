@@ -1,6 +1,18 @@
 import Api from '@/common/Api';
 import type { PageResult } from '@/types/common';
 import type {
+    BizDetail,
+    BizExpert,
+    BizExpertTemplate,
+    BizFileContent,
+    BizPage,
+    BizSkill,
+    BizSkillPackage,
+    BizThread,
+    BizUser,
+    BizUserDetail,
+    BizUserOption,
+    Capabilities,
     CasdoorApp,
     CasdoorAuth,
     CasdoorConnection,
@@ -16,6 +28,9 @@ import type {
     MetricSample,
     OctopInstance,
     OctopSettings,
+    ReadConnectionSaveForm,
+    ReadConnectionTestResult,
+    ReadConnectionView,
 } from './types';
 
 export const octopInstanceApi = {
@@ -50,4 +65,37 @@ export const octopEventApi = {
     query: Api.newGet<EventPage>('/octop/events'),
     summary: Api.newGet<EventSummary[]>('/octop/events/summary'),
     recollect: Api.newPost<void>('/octop/events/recollect'),
+};
+
+const BIZ = '/octop/instances/{id}/business';
+const BIZ_USER = `${BIZ}/users/{userId}`;
+
+/**
+ * 业务读取（只读）。路径参数 {id}=实例 ID、{userId}=Octop 用户 ID 等，由 Api 模板解析，
+ * 其余参数作为 query（pageNum/pageSize/keyword 等）。
+ */
+export const octopBusinessApi = {
+    capabilities: Api.newGet<Capabilities>(`${BIZ}/capabilities`),
+    userOptions: Api.newGet<BizPage<BizUserOption>>(`${BIZ}/user-options`),
+    users: Api.newGet<BizPage<BizUser>>(`${BIZ}/users`),
+    user: Api.newGet<BizUserDetail>(BIZ_USER),
+    experts: Api.newGet<BizPage<BizExpert>>(`${BIZ_USER}/experts`),
+    expert: Api.newGet<BizDetail<BizExpert>>(`${BIZ_USER}/experts/{expertId}`),
+    threads: Api.newGet<BizPage<BizThread>>(`${BIZ_USER}/threads`),
+    thread: Api.newGet<BizDetail<BizThread>>(`${BIZ_USER}/threads/{threadId}`),
+    expertTemplates: Api.newGet<BizPage<BizExpertTemplate>>(`${BIZ_USER}/expert-templates`),
+    expertTemplate: Api.newGet<BizDetail<BizExpertTemplate>>(`${BIZ_USER}/expert-templates/{templateId}`),
+    expertTemplateFile: Api.newGet<BizFileContent>(`${BIZ_USER}/expert-templates/{templateId}/files/{fileId}/content`),
+    skillPackages: Api.newGet<BizPage<BizSkillPackage>>(`${BIZ_USER}/skill-packages`),
+    skillPackage: Api.newGet<BizDetail<BizSkillPackage>>(`${BIZ_USER}/skill-packages/{packageId}`),
+    skills: Api.newGet<BizPage<BizSkill>>(`${BIZ_USER}/skill-packages/{packageId}/skills`),
+    skill: Api.newGet<BizDetail<BizSkill>>(`${BIZ_USER}/skill-packages/{packageId}/skills/{slug}`),
+    skillFile: Api.newGet<BizFileContent>(`${BIZ_USER}/skill-packages/{packageId}/skills/{slug}/files/{fileId}/content`),
+};
+
+export const octopReadConnectionApi = {
+    /** 带 type 返回单个；不带 type 返回两类配置数组 */
+    get: Api.newGet<ReadConnectionView | ReadConnectionView[]>('/octop/instances/{id}/read-connection'),
+    save: Api.newPost<ReadConnectionView, ReadConnectionSaveForm & { id: number }>('/octop/instances/{id}/read-connection'),
+    test: Api.newPost<ReadConnectionTestResult, ReadConnectionSaveForm & { id: number }>('/octop/instances/{id}/read-connection/test'),
 };

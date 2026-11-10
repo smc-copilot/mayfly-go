@@ -83,3 +83,16 @@ type RecollectForm struct {
 	InstanceId  uint64 `json:"instanceId"`
 	SourceTable string `json:"sourceTable"`
 }
+
+// ReadConnectionForm 业务读取连接保存/测试表单。
+//
+// Secret 留空表示保留已保存密钥；ClearSecret=true 显式清除；Revision 为乐观并发版本（新建为 0）。
+type ReadConnectionForm struct {
+	Type        string `json:"type"`
+	BaseURL     string `json:"baseUrl"`
+	ProjectId   string `json:"projectId"`
+	PublicKey   string `json:"publicKey"`
+	Secret      string `json:"secret"`
+	ClearSecret bool   `json:"clearSecret"`
+	Revision    int64  `json:"revision"`
+}

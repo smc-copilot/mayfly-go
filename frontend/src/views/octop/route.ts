@@ -3,4 +3,7 @@ export default {
     OctopInstanceDetail: () => import('@/views/octop/instance/InstanceDetail.vue'),
     OctopCasdoor: () => import('@/views/octop/casdoor/CasdoorDirectory.vue'),
     OctopEvent: () => import('@/views/octop/event/EventList.vue'),
+    OctopInstanceUsers: () => import('@/views/octop/user/InstanceUsers.vue'),
+    OctopInstanceUserDetail: () => import('@/views/octop/user/InstanceUserDetail.vue'),
+    OctopInstanceLibrary: () => import('@/views/octop/library/InstanceLibrary.vue'),
 };

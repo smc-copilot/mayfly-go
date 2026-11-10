@@ -32,4 +32,14 @@ var En = map[i18n.MsgId]string{
 	ErrEventNoPermission:         "no permission to query activity logs of this instance",
 	ErrExportNoPermission:        "no permission to export activity logs",
 	ErrCollectUnsupported:        "this category is unsupported or has no read-only grant on the instance",
+
+	LogOctopReadConnectionSave:  "Octop - Save business read connection",
+	ErrReadConnNotFound:         "business read connection not found",
+	ErrReadConnRevisionConflict: "the read connection was modified by someone else, please refresh and retry",
+	ErrBusinessDbNotLinked:      "this instance has no linked PostgreSQL; business data cannot be read",
+	ErrBusinessUserRequired:     "a valid Octop user id is required",
+	ErrBusinessNotFound:         "business record not found or does not belong to this user",
+	ErrBusinessContentDenied:    "no permission to read content",
+	ErrBusinessSourceFailed:     "failed to read business data",
+	ErrPreviewNotConfigured:     "Octop preview API is not configured or has no credential",
 }

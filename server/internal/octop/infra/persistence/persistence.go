@@ -14,4 +14,5 @@ func InitIoc() {
 	ioc.Register(newCollectorRunRepo())
 	ioc.Register(newMetricSampleRepo())
 	ioc.Register(newSettingsRepo())
+	ioc.Register(newReadConnectionRepo())
 }

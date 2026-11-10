@@ -32,4 +32,14 @@ var Zh_CN = map[i18n.MsgId]string{
 	ErrEventNoPermission:         "无权查询该实例的活动日志",
 	ErrExportNoPermission:        "无权导出活动日志",
 	ErrCollectUnsupported:        "该类别在当前实例不受支持或无只读权限",
+
+	LogOctopReadConnectionSave:  "Octop - 保存业务读取连接",
+	ErrReadConnNotFound:         "业务读取连接不存在",
+	ErrReadConnRevisionConflict: "业务读取连接已被他人修改，请刷新后重试",
+	ErrBusinessDbNotLinked:      "该实例未关联 PostgreSQL，无法读取业务数据",
+	ErrBusinessUserRequired:     "必须指定合法的 Octop 用户 ID",
+	ErrBusinessNotFound:         "业务记录不存在或不属于该用户",
+	ErrBusinessContentDenied:    "无权读取正文内容",
+	ErrBusinessSourceFailed:     "业务数据读取失败",
+	ErrPreviewNotConfigured:     "Octop 预览 API 未配置或未配置凭据",
 }

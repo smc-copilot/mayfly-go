@@ -63,6 +63,11 @@ func (a *instanceAppImpl) AssertInstanceAccess(ctx context.Context, inst *entity
 	return nil
 }
 
+// GetVisible 返回调用者有权访问的实例；不存在与无权访问分别返回对应业务错误。
+func (a *instanceAppImpl) GetVisible(ctx context.Context, id uint64) (*entity.OctopInstance, error) {
+	return a.mustGetVisible(ctx, id)
+}
+
 func (a *instanceAppImpl) mustGetVisible(ctx context.Context, id uint64) (*entity.OctopInstance, error) {
 	inst, err := a.GetById(id)
 	if err != nil {

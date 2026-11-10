@@ -40,4 +40,14 @@ const (
 	ErrEventNoPermission
 	ErrExportNoPermission
 	ErrCollectUnsupported
+
+	LogOctopReadConnectionSave
+	ErrReadConnNotFound
+	ErrReadConnRevisionConflict
+	ErrBusinessDbNotLinked
+	ErrBusinessUserRequired
+	ErrBusinessNotFound
+	ErrBusinessContentDenied
+	ErrBusinessSourceFailed
+	ErrPreviewNotConfigured
 )

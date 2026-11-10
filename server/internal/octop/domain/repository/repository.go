@@ -88,3 +88,9 @@ type Settings interface {
 	base.Repo[*entity.OctopSettings]
 	GetOrCreate(ctx context.Context) (*entity.OctopSettings, error)
 }
+
+type ReadConnection interface {
+	base.Repo[*entity.OctopReadConnection]
+	GetByInstanceType(ctx context.Context, instanceId uint64, connType string) (*entity.OctopReadConnection, error)
+	ListByInstance(ctx context.Context, instanceId uint64) ([]*entity.OctopReadConnection, error)
+}

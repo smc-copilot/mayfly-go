@@ -10,6 +10,8 @@ func InitIoc() {
 	ioc.Register(new(eventAppImpl))
 	ioc.Register(new(collectorAppImpl))
 	ioc.Register(new(settingsAppImpl))
+	ioc.Register(new(readConnectionAppImpl))
+	ioc.Register(new(businessAppImpl))
 }
 
 func Init() {
@@ -36,4 +38,12 @@ func GetCollectorApp() Collector {
 
 func GetSettingsApp() Settings {
 	return ioc.Get[Settings]()
+}
+
+func GetReadConnectionApp() ReadConnectionApp {
+	return ioc.Get[ReadConnectionApp]()
+}
+
+func GetBusinessApp() Business {
+	return ioc.Get[Business]()
 }

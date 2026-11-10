@@ -220,6 +220,25 @@ func v1123() []*gormigrate.Migration {
 		},
 
 		{
+			// 业务只读连接配置表（Octop 预览 API / Langfuse），按实例+类型唯一。
+			ID: "v1.12.3-octop-read-connection",
+			Migrate: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&octopentity.OctopReadConnection{})
+			},
+			Rollback: migrationx.NoopRollback,
+		},
+
+		{
+			// 实例用户 / 专家与技能包菜单与业务动作权限。
+			// InsertResourcesWithRole 按 id/code 幂等跳过已存在资源。
+			ID: "v1.12.3-octop-business-resources",
+			Migrate: func(tx *gorm.DB) error {
+				return migrationx.InsertResourcesWithRole(tx, octopBusinessResources)
+			},
+			Rollback: migrationx.NoopRollback,
+		},
+
+		{
 			// Casdoor 目录：独立应用 owner、分项同步状态、关系核实字段。
 			// AutoMigrate 对已有连接行按列比对补齐，新列为空/0，不改写 ClientSecretEnc 与旧快照。
 			ID: "v1.12.3-casdoor-directory-sync-fields",
@@ -488,4 +507,19 @@ var octopResources = []migrationx.ResourceDef{
 	migrationx.Resource(1750000018, 1750000005, "Octop001/Evnt0001/Ev00003/", 2, "menu.octopEventExport", "octop:event:export", 20000000, ""),
 	migrationx.Resource(1750000019, 1750000005, "Octop001/Evnt0001/Ev00004/", 2, "menu.octopCollectRecollect", "octop:collect:recollect", 30000000, ""),
 	migrationx.Resource(1750000020, 1750000002, "Octop001/Ov00001/Ov00003/", 2, "menu.octopConfigSave", "octop:config:save", 20000000, ""),
+}
+
+// octopBusinessResources 实例业务读取菜单与权限（S1+S2+S3）。
+var octopBusinessResources = []migrationx.ResourceDef{
+	migrationx.Resource(1750000021, 1750000001, "Octop001/Users001/", 1, "menu.octopInstanceUsers", "octop-users", 50000000, `{"component":"octop/user/InstanceUsers","icon":"User","isKeepAlive":true,"routeName":"OctopInstanceUsers"}`),
+	migrationx.Resource(1750000022, 1750000001, "Octop001/Lib00001/", 1, "menu.octopInstanceLibrary", "octop-library", 60000000, `{"component":"octop/library/InstanceLibrary","icon":"Collection","isKeepAlive":true,"routeName":"OctopInstanceLibrary"}`),
+	migrationx.Resource(1750000023, 1750000001, "Octop001/UserDet1/", 1, "menu.octopInstanceUserDetail", "octop-user-detail", 70000000, `{"component":"octop/user/InstanceUserDetail","isHide":true,"isKeepAlive":true,"routeName":"OctopInstanceUserDetail"}`),
+
+	migrationx.Resource(1750000030, 1750000021, "Octop001/Users001/Us00002/", 2, "menu.octopUserBase", "octop:user:base", 10000000, ""),
+	migrationx.Resource(1750000031, 1750000022, "Octop001/Lib00001/Lb00002/", 2, "menu.octopLibraryBase", "octop:library:base", 10000000, ""),
+	migrationx.Resource(1750000032, 1750000021, "Octop001/Users001/Us00003/", 2, "menu.octopExpertRead", "octop:expert:read", 20000000, ""),
+	migrationx.Resource(1750000033, 1750000021, "Octop001/Users001/Us00004/", 2, "menu.octopSessionBase", "octop:session:base", 30000000, ""),
+	migrationx.Resource(1750000034, 1750000021, "Octop001/Users001/Us00005/", 2, "menu.octopTraceBase", "octop:trace:base", 40000000, ""),
+	migrationx.Resource(1750000035, 1750000021, "Octop001/Users001/Us00006/", 2, "menu.octopContentRead", "octop:content:read", 50000000, ""),
+	migrationx.Resource(1750000036, 1750000003, "Octop001/Inst0001/In00006/", 2, "menu.octopIntegrationSave", "octop:integration:save", 50000000, ""),
 }
