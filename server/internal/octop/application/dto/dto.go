@@ -216,3 +216,14 @@ type ReadConnectionTestResult struct {
 	Message string     `json:"message"`
 	At      *time.Time `json:"at,omitempty"`
 }
+
+// ThreadTraceMeta 会话追踪关联摘要（打开追踪抽屉前的状态）。
+type ThreadTraceMeta struct {
+	Thread       *entity.BizThread  `json:"thread"`
+	Source       *entity.SourceMeta `json:"source,omitempty"`
+	Association  string             `json:"association"`
+	Mapping      string             `json:"mapping,omitempty"`
+	ProjectId    string             `json:"projectId,omitempty"`
+	ExternalURL  string             `json:"externalUrl,omitempty"`
+	Message      string             `json:"message,omitempty"`
+}

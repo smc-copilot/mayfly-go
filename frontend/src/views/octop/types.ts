@@ -455,6 +455,71 @@ export interface BizSkill {
     files?: BizFileEntry[];
 }
 
+export interface BizTrace {
+    traceId: string;
+    name?: string;
+    sessionId?: string;
+    userId?: string;
+    startTime?: string;
+    endTime?: string;
+    latencyMs?: number | null;
+    inputTokens?: number | null;
+    outputTokens?: number | null;
+    level?: string;
+    hasError?: boolean;
+    tags?: string[];
+}
+
+export interface BizObservation {
+    observationId: string;
+    traceId: string;
+    parentId?: string;
+    type: string;
+    name?: string;
+    startTime?: string;
+    endTime?: string;
+    latencyMs?: number | null;
+    model?: string;
+    inputTokens?: number | null;
+    outputTokens?: number | null;
+    level?: string;
+    statusMessage?: string;
+    hasContent?: boolean;
+    orphan?: boolean;
+}
+
+export interface BizObservationContent {
+    observationId: string;
+    input?: string;
+    output?: string;
+    truncated?: boolean;
+}
+
+export interface TracePage<T> {
+    list: T[];
+    total: number;
+    pageNum: number;
+    pageSize: number;
+    nextCursor?: string;
+    hasMore?: boolean;
+    source?: SourceMeta;
+    association?: string;
+    mapping?: string;
+    coverageStart?: string;
+    coverageEnd?: string;
+    externalUrl?: string;
+}
+
+export interface ThreadTraceMeta {
+    thread?: BizThread;
+    source?: SourceMeta;
+    association: string;
+    mapping?: string;
+    projectId?: string;
+    externalUrl?: string;
+    message?: string;
+}
+
 export type ReadConnectionType = 'octop_api' | 'langfuse';
 
 export interface ReadConnectionView {

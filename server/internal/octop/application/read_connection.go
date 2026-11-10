@@ -14,6 +14,7 @@ import (
 	"mayfly-go/internal/octop/domain/entity"
 	"mayfly-go/internal/octop/domain/repository"
 	"mayfly-go/internal/octop/imsg"
+	"mayfly-go/internal/octop/infra/langfuse"
 	"mayfly-go/internal/octop/infra/octopapi"
 	"mayfly-go/internal/pkg/utils"
 	"mayfly-go/pkg/base"
@@ -48,10 +49,13 @@ type instanceAccessor interface {
 	GetVisible(ctx context.Context, id uint64) (*entity.OctopInstance, error)
 }
 
+type langfuseFactoryFn func(cfg langfuse.Config) *langfuse.Client
+
 type readConnectionAppImpl struct {
-	connRepo    repository.ReadConnection `inject:"T"`
-	instanceApp instanceAccessor          `inject:"T"`
-	newPreview  previewFactory
+	connRepo     repository.ReadConnection `inject:"T"`
+	instanceApp  instanceAccessor          `inject:"T"`
+	newPreview   previewFactory
+	newLangfuse  langfuseFactoryFn
 }
 
 var _ ReadConnectionApp = (*readConnectionAppImpl)(nil)
@@ -256,9 +260,7 @@ func (a *readConnectionAppImpl) Test(ctx context.Context, instanceId uint64, req
 			res.State = entity.VerifyStateFailed
 			res.Message = "Langfuse 需要公钥和密钥"
 		} else {
-			// S4 之前不实际调用 Langfuse：只校验配置形态，不声称连通。
-			res.State = entity.VerifyStateNotVerified
-			res.Message = "配置格式有效，连通性待追踪读取能力上线后验证"
+			a.probeLangfuse(ctx, res, baseURL, publicKey, secret)
 		}
 	}
 	res.Ok = res.State == entity.VerifyStateReady
@@ -272,6 +274,38 @@ func (a *readConnectionAppImpl) probePreview(ctx context.Context, res *dto.ReadC
 	defer cancel()
 	err := a.previewFactory()(cfg).Probe(pctx)
 	res.State, res.Message = classifyPreviewErr(err)
+}
+
+func (a *readConnectionAppImpl) probeLangfuse(ctx context.Context, res *dto.ReadConnectionTestResult, baseURL, publicKey, secret string) {
+	pctx, cancel := context.WithTimeout(ctx, previewTimeout)
+	defer cancel()
+	factory := a.newLangfuse
+	if factory == nil {
+		factory = langfuse.NewClient
+	}
+	_, err := factory(langfuse.Config{
+		BaseURL: baseURL, PublicKey: publicKey, SecretKey: secret, Timeout: previewTimeout,
+	}).Probe(pctx)
+	res.State, res.Message = classifyLangfuseProbeErr(err)
+}
+
+func classifyLangfuseProbeErr(err error) (string, string) {
+	if err == nil {
+		return entity.VerifyStateReady, "连接正常"
+	}
+	var he *langfuse.HTTPError
+	switch {
+	case errors.Is(err, langfuse.ErrForbidden):
+		return entity.VerifyStateForbidden, "凭据被拒绝"
+	case errors.As(err, &he):
+		return entity.VerifyStateFailed, "服务返回异常 (http " + strconv.Itoa(he.StatusCode) + ")"
+	case errors.Is(err, langfuse.ErrConfig), errors.Is(err, langfuse.ErrUnsupported):
+		return entity.VerifyStateFailed, trimErr(err)
+	case errors.Is(err, context.DeadlineExceeded):
+		return entity.VerifyStateFailed, "请求超时"
+	default:
+		return entity.VerifyStateFailed, trimErr(err)
+	}
 }
 
 // recordVerify 仅当测试针对已保存且未变更的配置版本时，把结果记到该版本；候选配置的测试不落库。

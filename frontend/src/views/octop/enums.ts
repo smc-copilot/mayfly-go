@@ -61,6 +61,8 @@ export const OctopSourceStateEnum = {
     Forbidden: EnumValue.of('forbidden', 'octop.stateForbidden').tagTypeDanger(),
     Failed: EnumValue.of('failed', 'octop.stateFailed').tagTypeDanger(),
     Partial: EnumValue.of('partial', 'octop.statePartial').tagTypeWarning(),
+    AssociationUnverified: EnumValue.of('association_unverified', 'octop.associationUnverified').tagTypeDanger(),
+    NotFoundInRange: EnumValue.of('not_found_in_range', 'octop.traceNotFoundInRange').tagTypeInfo(),
 };
 
 /** Octop 用户/专家启用状态：与后端 int8 一致（1 / -1 / 0） */

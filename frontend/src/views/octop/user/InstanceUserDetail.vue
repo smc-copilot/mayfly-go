@@ -106,6 +106,12 @@
         </template>
 
         <expert-config-drawer v-model:visible="expertDrawerVisible" :instance-id="instanceId" :user-id="userId" :expert-id="activeExpertId" />
+        <session-trace-drawer
+            v-model:visible="traceDrawerVisible"
+            :instance-id="instanceId"
+            :user-id="userId"
+            :thread-id="activeThreadId"
+        />
     </div>
 </template>
 
@@ -126,6 +132,7 @@ import ReadStatusBar from '../components/ReadStatusBar.vue';
 import StatValueText from '../components/StatValueText.vue';
 import { useOctopPageContext } from '../composables/useOctopPageContext';
 import ExpertConfigDrawer from './ExpertConfigDrawer.vue';
+import SessionTraceDrawer from './SessionTraceDrawer.vue';
 
 defineOptions({ name: 'OctopInstanceUserDetail' });
 
@@ -138,6 +145,8 @@ const instanceValid = ref<boolean | undefined>();
 const detail = ref<BizUserDetail | null>(null);
 const expertDrawerVisible = ref(false);
 const activeExpertId = ref<string | undefined>();
+const traceDrawerVisible = ref(false);
+const activeThreadId = ref<string | undefined>();
 const expertTableRef = useTemplateRef<InstanceType<typeof DataTable>>('expertTableRef');
 const threadTableRef = useTemplateRef<InstanceType<typeof DataTable>>('threadTableRef');
 
@@ -181,6 +190,17 @@ const threadColumns = [
     TableColumn.new('createdAt', 'octop.createdAt').isSlot(),
     TableColumn.new('lastActive', 'octop.lastThreadActive').isSlot(),
     TableColumn.new('hasMessages', 'octop.messageState').isSlot(),
+    TableColumn.new('action', 'common.operation')
+        .setActions<BizThread>([
+            {
+                key: 'trace',
+                label: 'octop.viewTrace',
+                type: 'primary',
+                perm: 'octop:trace:base',
+                onClick: (row) => openTrace(row),
+            },
+        ])
+        .fixedRight(),
 ];
 
 const expertHooks = computed(() => ctx.bindTable<BizPage<BizExpert>>({ id: instanceId.value, userId: userId.value }));
@@ -206,6 +226,10 @@ const onTabChange = (name: string | number) => ctx.setTab(String(name));
 const openExpert = (row: BizExpert) => {
     activeExpertId.value = row.expertId;
     expertDrawerVisible.value = true;
+};
+const openTrace = (row: BizThread) => {
+    activeThreadId.value = row.threadId;
+    traceDrawerVisible.value = true;
 };
 const goBack = () => {
     router.push({ name: 'OctopInstanceUsers', query: { instanceId: instanceId.value ? String(instanceId.value) : undefined } });

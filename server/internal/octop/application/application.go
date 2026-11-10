@@ -12,6 +12,7 @@ func InitIoc() {
 	ioc.Register(new(settingsAppImpl))
 	ioc.Register(new(readConnectionAppImpl))
 	ioc.Register(new(businessAppImpl))
+	ioc.Register(new(traceAppImpl))
 }
 
 func Init() {
@@ -46,4 +47,8 @@ func GetReadConnectionApp() ReadConnectionApp {
 
 func GetBusinessApp() Business {
 	return ioc.Get[Business]()
+}
+
+func GetTraceApp() Trace {
+	return ioc.Get[Trace]()
 }

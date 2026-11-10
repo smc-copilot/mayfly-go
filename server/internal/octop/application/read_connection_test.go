@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -210,13 +211,18 @@ func TestReadConnectionTestPreviewAndLangfuse(t *testing.T) {
 	require.False(t, denied.Ok)
 	require.Equal(t, entity.VerifyStateForbidden, denied.State)
 
+	lfSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/public/health", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"OK","version":"2.92.0"}`))
+	}))
+	defer lfSrv.Close()
 	lf, err := app.Test(ctx, 1, &dto.ReadConnectionTest{
-		Type: entity.ReadConnTypeLangfuse, BaseURL: "https://lf.example", PublicKey: "pk", Secret: "sk",
+		Type: entity.ReadConnTypeLangfuse, BaseURL: lfSrv.URL, PublicKey: "pk", Secret: "sk",
 	})
 	require.NoError(t, err)
-	require.False(t, lf.Ok)
-	require.Equal(t, entity.VerifyStateNotVerified, lf.State)
-	require.Contains(t, lf.Message, "配置格式有效")
+	require.True(t, lf.Ok)
+	require.Equal(t, entity.VerifyStateReady, lf.State)
 }
 
 func TestReadConnectionTestRecordsVerifyOnSavedRevision(t *testing.T) {

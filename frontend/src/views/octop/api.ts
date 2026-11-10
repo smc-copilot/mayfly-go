@@ -8,11 +8,16 @@ import type {
     BizPage,
     BizSkill,
     BizSkillPackage,
+    BizObservation,
+    BizObservationContent,
     BizThread,
+    BizTrace,
     BizUser,
     BizUserDetail,
     BizUserOption,
     Capabilities,
+    ThreadTraceMeta,
+    TracePage,
     CasdoorApp,
     CasdoorAuth,
     CasdoorConnection,
@@ -91,6 +96,12 @@ export const octopBusinessApi = {
     skills: Api.newGet<BizPage<BizSkill>>(`${BIZ_USER}/skill-packages/{packageId}/skills`),
     skill: Api.newGet<BizDetail<BizSkill>>(`${BIZ_USER}/skill-packages/{packageId}/skills/{slug}`),
     skillFile: Api.newGet<BizFileContent>(`${BIZ_USER}/skill-packages/{packageId}/skills/{slug}/files/{fileId}/content`),
+    threadTraceStatus: Api.newGet<ThreadTraceMeta>(`${BIZ_USER}/threads/{threadId}/trace-status`),
+    traces: Api.newGet<TracePage<BizTrace>>(`${BIZ_USER}/threads/{threadId}/traces`),
+    observations: Api.newGet<TracePage<BizObservation>>(`${BIZ_USER}/threads/{threadId}/traces/{traceId}/observations`),
+    observationContent: Api.newGet<BizObservationContent>(
+        `${BIZ_USER}/threads/{threadId}/traces/{traceId}/observations/{observationId}/content`
+    ),
 };
 
 export const octopReadConnectionApi = {

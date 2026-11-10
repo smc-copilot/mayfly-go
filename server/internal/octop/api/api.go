@@ -9,4 +9,5 @@ func InitIoc() {
 	ioc.Register(new(Business))
 	ioc.Register(new(Library))
 	ioc.Register(new(ReadConnection))
+	ioc.Register(new(TraceAPI))
 }
