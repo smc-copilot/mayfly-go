@@ -252,7 +252,7 @@ func TestPageThreadsLeftJoinAgentsAndNoMessages(t *testing.T) {
 
 func TestGetExpertProjectsWhitelistWithoutDefaults(t *testing.T) {
 	cfg := `{"model_ref":"gpt-x","temperature":0.2,"max_tokens":4096,"skill_packages":[{"id":"p1","name":"P"},"p2"],"secret_token":"leak"}`
-	q := &memQueryer{routes: []route{{contains: "config AS config", rows: []map[string]any{{
+	q := &memQueryer{routes: []route{{contains: "config_json AS config", rows: []map[string]any{{
 		"expert_id": "a1", "name": "E", "enabled": true, "last_state": "idle", "config": []byte(cfg),
 	}}}}}
 	e, meta, err := newTestReader(q).GetExpert(context.Background(), "3", "a1")
@@ -276,7 +276,7 @@ func TestGetExpertProjectsWhitelistWithoutDefaults(t *testing.T) {
 }
 
 func TestGetExpertNoConfigAllUnsupported(t *testing.T) {
-	q := &memQueryer{routes: []route{{contains: "config AS config", rows: []map[string]any{{"expert_id": "a1", "name": "E", "config": nil}}}}}
+	q := &memQueryer{routes: []route{{contains: "config_json AS config", rows: []map[string]any{{"expert_id": "a1", "name": "E", "config": nil}}}}}
 	e, _, err := newTestReader(q).GetExpert(context.Background(), "3", "a1")
 	require.NoError(t, err)
 	require.Len(t, e.Config.Unsupported, len(configWhitelist))

@@ -7,11 +7,11 @@
 //   - 用户 ID：Octop users.id 为整数，API 层为字符串；仅接受十进制非负整数字符串，
 //     其它表（agents/threads）用 user_id::text 比较，避免 int/text 列类型差异。
 //
-// Schema 假设（S0 需对照真实 Octop 库核验，见各 SQL 旁注释）：
+// 业务字段对齐 Octop 源码及 2026-11-10 核验的 PostgreSQL schema：
 //
-//	users(id, username, display_name, is_active, role, created_at)
-//	agents(agent_id, user_id, kind, name, description, model, enabled, last_state, config, source_template_id, created_at, updated_at)
-//	threads(thread_id, user_id, agent_id, title, channel, created_at, last_active)   -- 时间为 epoch 秒，last_active=0 表示无消息
+//	users(id, username, display_name, disabled, role, created_at) -- disabled 为整数 0/1
+//	agents(agent_id, user_id, kind, name, description, default_model, enabled, last_state, config_json, template_name, published_expert_id, skill_package_ids, knowledge_base_ids, mcp_servers, created_at, updated_at)
+//	threads(thread_id, user_id, agent_id, title, channel_type, created_at, last_active) -- 时间为 epoch 秒，last_active=0 表示无消息
 //	published_experts(published_expert_id, created_by, name, description, source_agent_id, slug, created_at, updated_at)
 //	skill_packages(skill_package_id, created_by, name, description, skill_count, shared, updated_at)
 //	skills(skill_package_id, slug, name, description, source)
@@ -133,7 +133,7 @@ func NewReader(q Queryer, opts ...Option) *Reader {
 // ---------------------------------------------------------------- users
 
 const userSelectCols = `u.id AS user_id, u.username AS username, u.display_name AS display_name, ` +
-	`u.is_active AS enabled, u.role AS role, u.created_at AS created_at, ` +
+	`(u.disabled = 0) AS enabled, u.role AS role, u.created_at AS created_at, ` +
 	`COALESCE(e.cnt, 0) AS expert_count, COALESCE(t.cnt, 0) AS thread_count, t.last_active AS last_active`
 
 // usersFrom 专家数/会话数来自两个独立分组子查询，再按用户 id 连接，
@@ -156,7 +156,7 @@ func (r *Reader) userFilters(a *args, q *entity.BusinessQuery) []string {
 		conds = append(conds, fmt.Sprintf(`(u.username ILIKE %s ESCAPE '\' OR u.display_name ILIKE %s ESCAPE '\')`, p, p))
 	}
 	if q.Enabled != nil {
-		conds = append(conds, "u.is_active = "+a.add(*q.Enabled > 0))
+		conds = append(conds, "u.disabled = "+a.add(1-enabledFlag(*q.Enabled)))
 	}
 	return conds
 }
@@ -322,8 +322,8 @@ func (r *Reader) failedStat(state string) entity.StatValue {
 
 // ---------------------------------------------------------------- experts
 
-const expertListCols = `agent_id AS expert_id, name AS name, description AS description, model AS model, ` +
-	`enabled AS enabled, last_state AS last_state, source_template_id AS source_template, ` +
+const expertListCols = `agent_id AS expert_id, name AS name, description AS description, default_model AS model, ` +
+	`enabled AS enabled, last_state AS last_state, COALESCE(NULLIF(published_expert_id, ''), template_name) AS source_template, ` +
 	`created_at AS created_at, updated_at AS updated_at`
 
 // PageExperts 用户专家分页（不含 config）。
@@ -339,10 +339,10 @@ func (r *Reader) PageExperts(ctx context.Context, userId string, q *entity.Busin
 		conds = append(conds, fmt.Sprintf(`name ILIKE %s ESCAPE '\'`, a.add(likePattern(kw))))
 	}
 	if q.Enabled != nil {
-		conds = append(conds, "enabled = "+a.add(*q.Enabled > 0))
+		conds = append(conds, "enabled = "+a.add(enabledFlag(*q.Enabled)))
 	}
 	if m := strings.TrimSpace(q.Model); m != "" {
-		conds = append(conds, "model = "+a.add(m))
+		conds = append(conds, "default_model = "+a.add(m))
 	}
 	table := quoteIdent(r.tables.Agents)
 	where := whereClause(conds)
@@ -359,7 +359,7 @@ func (r *Reader) GetExpert(ctx context.Context, userId, expertId string) (*entit
 		return nil, r.meta(entity.SourceStateFailed, err), err
 	}
 	a := &args{}
-	sql := fmt.Sprintf("SELECT %s, config AS config FROM %s WHERE agent_id = %s AND user_id::text = %s AND kind = %s LIMIT 1",
+	sql := fmt.Sprintf("SELECT %s, config_json AS config, skill_package_ids, knowledge_base_ids, mcp_servers FROM %s WHERE agent_id = %s AND user_id::text = %s AND kind = %s LIMIT 1",
 		expertListCols, quoteIdent(r.tables.Agents), a.add(expertId), a.add(uid), a.add(kindExpert))
 	rows, qerr := r.query(ctx, sql, a)
 	if qerr != nil {
@@ -369,7 +369,7 @@ func (r *Reader) GetExpert(ctx context.Context, userId, expertId string) (*entit
 		return nil, r.meta(entity.SourceStateReady, nil), ErrNotFound
 	}
 	e := r.mapExpert(rows[0])
-	e.Config = projectConfig(rows[0]["config"], e)
+	e.Config = projectStoredConfig(rows[0], e)
 	if e.Config != nil && hasConfigKey(e.Config, "skill_packages") {
 		n := int64(len(e.Config.SkillPackages))
 		e.SkillPkgCount = &n
@@ -391,11 +391,69 @@ func (r *Reader) mapExpert(row map[string]any) *entity.BizExpert {
 	}
 }
 
-// configWhitelist config JSON 中允许投影的键（snake_case，需 S0 核验）。
+// configWhitelist 配置 DTO 的白名单键，源字段由 projectStoredConfig 映射。
 var configWhitelist = []string{
 	"model_ref", "provider_name", "provider_id",
 	"temperature", "top_p", "max_tokens", "max_iterations", "input_length", "trajectory_on",
 	"skill_packages", "knowledge_bases", "mcp_connections", "sub_experts",
+}
+
+// projectStoredConfig 对齐 Octop 的运行参数及独立挂载列，保持现有 API 字段。
+// 独立列优先；未设置时兼容旧 config_json 中的挂载 ID 列表，不补默认值。
+func projectStoredConfig(row map[string]any, e *entity.BizExpert) *entity.BizExpertConfig {
+	raw := parseJSONObject(row["config"])
+	projected := make(map[string]any, len(configWhitelist))
+	for _, key := range configWhitelist {
+		if value, ok := raw[key]; ok {
+			projected[key] = value
+		}
+	}
+	for _, mapping := range [][2]string{
+		{"max_iters", "max_iterations"}, {"max_input_length", "input_length"},
+		{"enable_trajectory", "trajectory_on"},
+	} {
+		if value, ok := raw[mapping[0]]; ok {
+			projected[mapping[1]] = value
+		}
+	}
+	if e.Model != "" {
+		projected["model_ref"] = e.Model
+	}
+	for _, mapping := range [][2]string{
+		{"skill_package_ids", "skill_packages"}, {"knowledge_base_ids", "knowledge_bases"},
+		{"mcp_servers", "mcp_connections"},
+	} {
+		if value, ok := raw[mapping[0]]; ok {
+			projected[mapping[1]] = value
+		}
+		if value := parseStoredIDList(row[mapping[0]]); value != nil {
+			projected[mapping[1]] = value
+		}
+	}
+	return projectConfig(projected, e)
+}
+
+func parseStoredIDList(raw any) []any {
+	var data []byte
+	switch value := raw.(type) {
+	case string:
+		data = []byte(value)
+	case []byte:
+		data = value
+	default:
+		return nil
+	}
+	var ids []string
+	if err := json.Unmarshal(data, &ids); err != nil || ids == nil {
+		return nil
+	}
+	values := make([]any, 0, len(ids))
+	for _, id := range ids {
+		if strings.TrimSpace(id) != "" {
+			values = append(values, id)
+		}
+	}
+	return values
 }
 
 // projectConfig 仅投影白名单键；缺失键写入 Unsupported，绝不补默认值。
@@ -534,7 +592,7 @@ func (r *Reader) PageThreads(ctx context.Context, userId string, q *entity.Busin
 }
 
 const threadCols = `t.thread_id AS thread_id, t.title AS title, t.agent_id AS agent_id, a.name AS agent_name, ` +
-	`t.channel AS channel, t.created_at AS created_at, t.last_active AS last_active`
+	`t.channel_type AS channel, t.created_at AS created_at, t.last_active AS last_active`
 
 func (r *Reader) threadConds(a *args, uid string, q *entity.BusinessQuery) ([]string, error) {
 	conds := []string{"t.user_id::text = " + a.add(uid)}
@@ -542,7 +600,7 @@ func (r *Reader) threadConds(a *args, uid string, q *entity.BusinessQuery) ([]st
 		conds = append(conds, fmt.Sprintf(`t.title ILIKE %s ESCAPE '\'`, a.add(likePattern(kw))))
 	}
 	if c := strings.TrimSpace(q.Channel); c != "" {
-		conds = append(conds, "t.channel = "+a.add(c))
+		conds = append(conds, "t.channel_type = "+a.add(c))
 	}
 	if ag := strings.TrimSpace(q.AgentId); ag != "" {
 		conds = append(conds, "t.agent_id = "+a.add(ag))
@@ -1013,6 +1071,14 @@ func toBool(v any) bool {
 		return b
 	}
 	return false
+}
+
+// enabledFlag 源端 enabled/disabled 均为整数标记，不能传 PostgreSQL 布尔参数。
+func enabledFlag(enabled int8) int {
+	if enabled > 0 {
+		return 1
+	}
+	return 0
 }
 
 // toEnabled 1 启用 / -1 禁用 / 0 未知。
