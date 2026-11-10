@@ -29,3 +29,18 @@
 - 同镜像隔离测试 24 项通过，包括专用 built-in 管理应用、client_credentials、跨组织读取及已验证的部分字段写入；不表示尚未接线的 Mayfly 写入流程已经交付。
 - 后端 Casdoor/迁移测试、前端上下文/路由/i18n 测试和 Vite 构建通过。全仓 Vue 类型检查仍有原有 `flow/PropSettingDrawer.vue`、`octop/InstanceEdit.vue` 错误，本次 Casdoor 文件无类型错误。
 - 尚未交付：原生用户/应用编辑、新建用户激活、访问授权预览/执行/回读核对、服务范围配置 UI、全部旧 Octop 目录迁移及可选业务资源接线。页面明确提示当前为目录读取与同步，不能将本阶段标记为原 PRD 全量完成。
+
+## 2026-11-10 生产专用身份与迁移验收
+
+用户已明确批准创建并配置全局管理身份。已完成以下生产配置：
+
+- Casdoor 应用 `admin/mayfly-management`，归属 `built-in`，仅启用 `client_credentials`，令牌有效期配置为 1 小时，关闭注册与密码登录入口。
+- Mayfly 服务 `Casdoor-102.247`（ID 1），根地址 `http://192.168.102.247:8000`，超时 15 秒、自动采集周期 3600 秒。新随机密钥只在服务器配置进程内生成和使用，并由现有 ServiceManager 使用生产 AES 配置加密保存；未输出密钥或令牌。
+- 经已授权 SSH 维护通道调用当前版本的应用服务完成配置，未直接拼写新服务/凭证/组织行的 SQL。调用前已备份数据库和 compose 配置；未修改生产认证校验或登录设置。
+- 旧 `casdoor-octop-8090` 显式迁移到服务下的 `smartcore` 上下文，原连接 ID 1 保留。迁移前后 18 条用户的本地主键和源身份集合摘要一致。
+- 发现 3 个组织：`built-in`（应用 2、用户 1）、`smartcore`（应用 2、用户 18）、`混合分销`（应用 1、用户 0）；各组织角色/群组/权限共 9 类采集均成功。
+- 正式 Mayfly 页面再次执行“验证并发现组织”成功，并对 smartcore 执行“立即同步”，五类目录全部成功，确认正式运行进程能解密新凭证并完成令牌认证。
+- 内置 `app-built-in` 的 Client ID / Secret 回读与操作前一致。当前线上镜像保持 `smc-mayfly-go:28481cdccf1d`，无需重建或重启。
+- 备份目录：`/data/projects/mayfly-go-deploy/backups/20261110-085109-casdoor-management-bootstrap`。其中 `bootstrap-before.json` 与 `bootstrap-after.json` 记录无密钥的迁移及验收摘要。
+
+本次完成的是已批准的专用身份创建、连接配置、历史迁移及目录同步。原 PRD 的用户/应用编辑、授权变更预览/执行/回读等写入流程仍待后续实施，不能据此认定完整管理功能已交付。
