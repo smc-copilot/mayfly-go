@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -211,11 +210,7 @@ func TestReadConnectionTestPreviewAndLangfuse(t *testing.T) {
 	require.False(t, denied.Ok)
 	require.Equal(t, entity.VerifyStateForbidden, denied.State)
 
-	lfSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/public/health", r.URL.Path)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"OK","version":"2.92.0"}`))
-	}))
+	lfSrv := traceFixture(t, "2.92.0", func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
 	defer lfSrv.Close()
 	lf, err := app.Test(ctx, 1, &dto.ReadConnectionTest{
 		Type: entity.ReadConnTypeLangfuse, BaseURL: lfSrv.URL, PublicKey: "pk", Secret: "sk",
@@ -223,6 +218,9 @@ func TestReadConnectionTestPreviewAndLangfuse(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, lf.Ok)
 	require.Equal(t, entity.VerifyStateReady, lf.State)
+	require.Equal(t, "2.92.0", lf.Version)
+	require.Equal(t, "project-1", lf.ProjectId)
+	require.Len(t, lf.Checks, 4)
 }
 
 func TestReadConnectionTestRecordsVerifyOnSavedRevision(t *testing.T) {

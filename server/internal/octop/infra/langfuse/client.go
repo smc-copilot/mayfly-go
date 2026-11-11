@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -22,13 +23,14 @@ type Config struct {
 	BaseURL   string
 	PublicKey string
 	SecretKey string
+	ProjectId string
 	Timeout   time.Duration
 }
 
 const (
-	defaultTimeout     = 15 * time.Second
+	defaultTimeout       = 15 * time.Second
 	MaxContentFieldBytes = 32 * 1024
-	maxBodyBytes       = 4 << 20
+	maxBodyBytes         = 4 << 20
 )
 
 var (
@@ -36,6 +38,9 @@ var (
 	ErrHTTP        = errors.New("langfuse: http error")
 	ErrUnsupported = errors.New("langfuse: unsupported")
 	ErrForbidden   = errors.New("langfuse: forbidden")
+	ErrProject     = errors.New("langfuse: project mismatch")
+	ErrAssociation = errors.New("langfuse: association unverified")
+	ErrQuery       = errors.New("langfuse: invalid query")
 )
 
 // HTTPError 非 2xx。
@@ -51,16 +56,19 @@ func (e *HTTPError) Is(target error) bool {
 	return target == ErrHTTP
 }
 
-// Client Langfuse Public API 客户端（经典 /api/public/*，适用于多数自托管 v2/v3）。
+// Client selects the verified v2/v3 classic or v4 Observation read protocol.
 type Client struct {
-	base   string
-	auth   string
-	client *http.Client
-	cfgErr error
+	base            string
+	auth            string
+	client          *http.Client
+	cfgErr          error
+	expectedProject string
+	verifyMu        sync.Mutex
+	verified        *Verification
 }
 
 func NewClient(cfg Config) *Client {
-	c := &Client{}
+	c := &Client{expectedProject: strings.TrimSpace(cfg.ProjectId)}
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = defaultTimeout
@@ -68,7 +76,7 @@ func NewClient(cfg Config) *Client {
 	base := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
 	u, err := url.Parse(base)
 	switch {
-	case base == "" || err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https"):
+	case base == "" || err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "http" && u.Scheme != "https"):
 		c.cfgErr = fmt.Errorf("%w: base url", ErrConfig)
 	case strings.TrimSpace(cfg.PublicKey) == "" || strings.TrimSpace(cfg.SecretKey) == "":
 		c.cfgErr = fmt.Errorf("%w: public/secret key required", ErrConfig)
@@ -86,27 +94,13 @@ func NewClient(cfg Config) *Client {
 	return c
 }
 
-// Probe 探测健康与认证。成功返回版本字符串（可能为空）。
+// Probe verifies health, authentication, project and read capability.
 func (c *Client) Probe(ctx context.Context) (version string, err error) {
-	if c.cfgErr != nil {
-		return "", c.cfgErr
-	}
-	body, status, err := c.do(ctx, http.MethodGet, "/api/public/health", nil)
+	info, err := c.Verify(ctx)
 	if err != nil {
 		return "", err
 	}
-	if status == http.StatusUnauthorized || status == http.StatusForbidden {
-		return "", fmt.Errorf("%w: %d", ErrForbidden, status)
-	}
-	if status < 200 || status >= 300 {
-		return "", &HTTPError{StatusCode: status}
-	}
-	var resp struct {
-		Status  string `json:"status"`
-		Version string `json:"version"`
-	}
-	_ = json.Unmarshal(body, &resp)
-	return resp.Version, nil
+	return info.Version, nil
 }
 
 // ListTracesQuery 追踪列表查询。
@@ -117,6 +111,8 @@ type ListTracesQuery struct {
 	To        *time.Time
 	Page      int
 	Limit     int
+	Cursor    string
+	TraceId   string
 }
 
 type ListTracesResult struct {
@@ -129,6 +125,17 @@ type ListTracesResult struct {
 }
 
 func (c *Client) ListTraces(ctx context.Context, q ListTracesQuery) (*ListTracesResult, error) {
+	info, err := c.Verify(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if info.APIMode == ModeV4 {
+		return c.listV4Traces(ctx, q, info.ProjectId)
+	}
+	return c.listClassicTraces(ctx, q)
+}
+
+func (c *Client) listClassicTraces(ctx context.Context, q ListTracesQuery) (*ListTracesResult, error) {
 	if c.cfgErr != nil {
 		return nil, c.cfgErr
 	}
@@ -158,12 +165,26 @@ func (c *Client) ListTraces(ctx context.Context, q ListTracesQuery) (*ListTraces
 	if q.To != nil {
 		params.Set("toTimestamp", q.To.UTC().Format(time.RFC3339Nano))
 	}
-	body, status, err := c.do(ctx, http.MethodGet, "/api/public/traces?"+params.Encode(), nil)
+	path := "/api/public/traces?" + params.Encode()
+	if q.TraceId != "" {
+		path = "/api/public/traces/" + url.PathEscape(q.TraceId)
+	}
+	body, status, err := c.do(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
 	}
 	if err := mapStatus(status); err != nil {
 		return nil, err
+	}
+	if q.TraceId != "" {
+		var raw rawTrace
+		if err := json.Unmarshal(body, &raw); err != nil {
+			return nil, fmt.Errorf("%w: trace response", ErrUnsupported)
+		}
+		if raw.ID != q.TraceId || raw.SessionID != q.SessionId || raw.UserID != q.UserId {
+			return nil, ErrAssociation
+		}
+		return &ListTracesResult{Items: []*entity.BizTrace{raw.toBiz()}, Total: 1, Page: 1, Limit: 1}, nil
 	}
 	var resp struct {
 		Data []rawTrace `json:"data"`
@@ -176,6 +197,9 @@ func (c *Client) ListTraces(ctx context.Context, q ListTracesQuery) (*ListTraces
 	}
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("langfuse: decode traces: %w", err)
+	}
+	if resp.Data == nil {
+		return nil, fmt.Errorf("%w: traces envelope", ErrUnsupported)
 	}
 	items := make([]*entity.BizTrace, 0, len(resp.Data))
 	for i := range resp.Data {
@@ -193,20 +217,46 @@ func (c *Client) ListTraces(ctx context.Context, q ListTracesQuery) (*ListTraces
 }
 
 type ListObservationsQuery struct {
-	TraceId string
-	Page    int
-	Limit   int
+	TraceId   string
+	SessionId string
+	UserId    string
+	From      *time.Time
+	To        *time.Time
+	Cursor    string
+	Page      int
+	Limit     int
 }
 
 type ListObservationsResult struct {
-	Items   []*entity.BizObservation
-	Total   int64
-	Page    int
-	Limit   int
-	HasMore bool
+	Items      []*entity.BizObservation
+	Total      int64
+	Page       int
+	Limit      int
+	HasMore    bool
+	NextCursor string
 }
 
 func (c *Client) ListObservations(ctx context.Context, q ListObservationsQuery) (*ListObservationsResult, error) {
+	info, err := c.Verify(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if info.APIMode == ModeV4 {
+		return c.listV4Observations(ctx, q, info.ProjectId)
+	}
+	res, err := c.listClassicObservations(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range res.Items {
+		if item.ObservationId == "" || item.TraceId != q.TraceId {
+			return nil, ErrAssociation
+		}
+	}
+	return res, nil
+}
+
+func (c *Client) listClassicObservations(ctx context.Context, q ListObservationsQuery) (*ListObservationsResult, error) {
 	if c.cfgErr != nil {
 		return nil, c.cfgErr
 	}
@@ -247,6 +297,9 @@ func (c *Client) ListObservations(ctx context.Context, q ListObservationsQuery) 
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("langfuse: decode observations: %w", err)
 	}
+	if resp.Data == nil {
+		return nil, fmt.Errorf("%w: observations envelope", ErrUnsupported)
+	}
 	items := make([]*entity.BizObservation, 0, len(resp.Data))
 	for i := range resp.Data {
 		items = append(items, resp.Data[i].toBiz())
@@ -264,6 +317,17 @@ func (c *Client) ListObservations(ctx context.Context, q ListObservationsQuery) 
 
 // GetObservation 取单条 observation（含 input/output）。
 func (c *Client) GetObservation(ctx context.Context, observationId string) (*entity.BizObservation, *entity.BizObservationContent, error) {
+	info, err := c.Verify(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if info.APIMode == ModeV4 {
+		return nil, nil, ErrQuery
+	}
+	return c.getClassicObservation(ctx, observationId)
+}
+
+func (c *Client) getClassicObservation(ctx context.Context, observationId string) (*entity.BizObservation, *entity.BizObservationContent, error) {
 	if c.cfgErr != nil {
 		return nil, nil, c.cfgErr
 	}
@@ -280,18 +344,24 @@ func (c *Client) GetObservation(ctx context.Context, observationId string) (*ent
 	}
 	var raw rawObservation
 	if err := json.Unmarshal(body, &raw); err != nil {
-		// 有的版本包在 data 里
+		return nil, nil, fmt.Errorf("%w: observation response", ErrUnsupported)
+	}
+	if raw.ID == "" {
+		// Some classic versions wrap the item in data; absent IDs never pass.
 		var wrap struct {
 			Data rawObservation `json:"data"`
 		}
-		if err2 := json.Unmarshal(body, &wrap); err2 != nil {
-			return nil, nil, fmt.Errorf("langfuse: decode observation: %w", err)
+		if err := json.Unmarshal(body, &wrap); err != nil {
+			return nil, nil, fmt.Errorf("%w: observation envelope", ErrUnsupported)
 		}
 		raw = wrap.Data
 	}
+	if raw.ID != id || raw.TraceID == "" {
+		return nil, nil, ErrAssociation
+	}
 	obs := raw.toBiz()
-	inStr, inTrunc := stringifyTruncate(raw.Input, MaxContentFieldBytes)
-	outStr, outTrunc := stringifyTruncate(raw.Output, MaxContentFieldBytes)
+	inStr, inTrunc := stringifyTruncate(redactContent(raw.Input), MaxContentFieldBytes)
+	outStr, outTrunc := stringifyTruncate(redactContent(raw.Output), MaxContentFieldBytes)
 	content := &entity.BizObservationContent{
 		ObservationId: obs.ObservationId,
 		Input:         inStr,

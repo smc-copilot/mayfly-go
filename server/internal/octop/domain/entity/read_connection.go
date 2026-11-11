@@ -6,6 +6,12 @@ import (
 	"mayfly-go/pkg/model"
 )
 
+type ReadConnectionCheck struct {
+	Name    string `json:"name"`
+	State   string `json:"state"`
+	Message string `json:"message,omitempty"`
+}
+
 const (
 	ReadConnTypeOctopAPI = "octop_api"
 	ReadConnTypeLangfuse = "langfuse"

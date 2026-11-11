@@ -17,9 +17,16 @@ func TestProbeAndAuth(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		require.Equal(t, "/api/public/health", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"OK","version":"2.92.0"}`))
+		body := `{"status":"OK","version":"2.92.0"}`
+		if r.URL.Path == "/api/public/projects" {
+			body = `{"data":[{"id":"project-1","name":"test"}]}`
+		}
+		if r.URL.Path == "/api/public/traces" {
+			body = `{"data":[],"meta":{"totalItems":0,"totalPages":0}}`
+		}
+		_, err := w.Write([]byte(body))
+		require.NoError(t, err)
 	}))
 	defer srv.Close()
 
@@ -32,7 +39,7 @@ func TestProbeAndAuth(t *testing.T) {
 }
 
 func TestListTracesFiltersAndRecheckFields(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := classicFixture(t, func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/api/public/traces", r.URL.Path)
 		q := r.URL.Query()
 		require.Equal(t, "thread-1", q.Get("sessionId"))
@@ -42,7 +49,7 @@ func TestListTracesFiltersAndRecheckFields(t *testing.T) {
 			"data":[{"id":"t1","name":"run","sessionId":"thread-1","userId":"42","level":"DEFAULT","latency":1.5}],
 			"meta":{"page":1,"limit":20,"totalItems":1,"totalPages":1}
 		}`)
-	}))
+	})
 	defer srv.Close()
 
 	c := NewClient(Config{BaseURL: srv.URL, PublicKey: "pk", SecretKey: "sk"})
@@ -59,7 +66,7 @@ func TestListTracesFiltersAndRecheckFields(t *testing.T) {
 
 func TestListObservationsAndContentTruncate(t *testing.T) {
 	big := strings.Repeat("x", MaxContentFieldBytes+100)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := classicFixture(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/public/observations" && r.URL.Query().Get("traceId") == "t1":
 			_, _ = io.WriteString(w, `{"data":[{"id":"o1","traceId":"t1","type":"GENERATION","name":"llm","input":"hi","output":"yo"}],"meta":{"page":1,"limit":50,"totalItems":1,"totalPages":1}}`)
@@ -68,7 +75,7 @@ func TestListObservationsAndContentTruncate(t *testing.T) {
 		default:
 			http.NotFound(w, r)
 		}
-	}))
+	})
 	defer srv.Close()
 
 	c := NewClient(Config{BaseURL: srv.URL, PublicKey: "pk", SecretKey: "sk"})
@@ -107,4 +114,38 @@ func jsonString(s string) string {
 		panic(err)
 	}
 	return string(b)
+}
+
+func classicFixture(t *testing.T, read http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body string
+		switch {
+		case r.URL.Path == "/api/public/health":
+			body = `{"status":"OK","version":"3.1.0"}`
+		case r.URL.Path == "/api/public/projects":
+			body = `{"data":[{"id":"project-1","name":"test"}]}`
+		case r.URL.Path == "/api/public/traces" && r.URL.Query().Get("sessionId") == "":
+			body = `{"data":[],"meta":{"totalItems":0,"totalPages":0}}`
+		default:
+			read(w, r)
+			return
+		}
+		_, err := io.WriteString(w, body)
+		require.NoError(t, err)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestClassicDirectTraceDoesNotDependOnFirstPage(t *testing.T) {
+	srv := classicFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/public/traces/last-trace", r.URL.Path)
+		_, err := io.WriteString(w, `{"id":"last-trace","sessionId":"thread-1","userId":"42"}`)
+		require.NoError(t, err)
+	})
+	result, err := NewClient(Config{BaseURL: srv.URL, PublicKey: "pk", SecretKey: "sk"}).ListTraces(context.Background(), ListTracesQuery{SessionId: "thread-1", UserId: "42", TraceId: "last-trace"})
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	require.Equal(t, "last-trace", result.Items[0].TraceId)
 }

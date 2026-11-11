@@ -50,4 +50,16 @@ const (
 	ErrBusinessContentDenied
 	ErrBusinessSourceFailed
 	ErrPreviewNotConfigured
+	MsgLangfuseReady
+	ErrLangfuseNotConfigured
+	ErrLangfuseForbidden
+	ErrLangfuseUnsupported
+	ErrLangfuseProject
+	ErrLangfuseAssociation
+	ErrLangfuseFailed
+	ErrLangfuseRateLimited
+	ErrLangfuseTimeout
+	ErrTraceQuery
+	MsgTraceDefaultWindow
+	MsgTraceNotFoundInRange
 )

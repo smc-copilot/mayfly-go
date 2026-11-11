@@ -2,6 +2,8 @@ package application
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -74,7 +76,7 @@ func TestPageTracesRechecksAssociation(t *testing.T) {
 	biz := &stubBusinessForTrace{thread: &entity.BizThread{ThreadId: "th1", CreatedAt: &created}}
 	access := &stubInstanceAccess{inst: &entity.OctopInstance{Id: 9}}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := traceFixture(t, "3.1.0", func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/public/health":
 			_, _ = w.Write([]byte(`{"status":"OK"}`))
@@ -84,7 +86,7 @@ func TestPageTracesRechecksAssociation(t *testing.T) {
 		default:
 			http.NotFound(w, r)
 		}
-	}))
+	})
 	defer srv.Close()
 
 	repo := newTestReadConnRepo()
@@ -112,20 +114,26 @@ func TestPageTracesReadyAndContentDenied(t *testing.T) {
 	biz := &stubBusinessForTrace{thread: &entity.BizThread{ThreadId: "th1", CreatedAt: &created}}
 	access := &stubInstanceAccess{inst: &entity.OctopInstance{Id: 10}}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := traceFixture(t, "3.1.0", func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/public/health":
 			_, _ = w.Write([]byte(`{"status":"OK"}`))
 		case r.URL.Path == "/api/public/traces":
-			_, _ = w.Write([]byte(`{"data":[{"id":"t1","sessionId":"th1","userId":"u1","name":"n1"}],"meta":{"page":1,"limit":20,"totalItems":1,"totalPages":1}}`))
+			_, err := fmt.Fprintf(w, `{"data":[{"id":"t1","sessionId":"th1","userId":"u1","name":"n1","timestamp":%q}],"meta":{"page":1,"limit":20,"totalItems":1,"totalPages":1}}`, created.Add(time.Minute).Format(time.RFC3339Nano))
+			require.NoError(t, err)
+		case r.URL.Path == "/api/public/traces/t1":
+			_, err := fmt.Fprintf(w, `{"id":"t1","sessionId":"th1","userId":"u1","timestamp":%q}`, created.Add(time.Minute).Format(time.RFC3339Nano))
+			require.NoError(t, err)
 		case r.URL.Path == "/api/public/observations" && r.URL.Query().Get("traceId") == "t1":
-			_, _ = w.Write([]byte(`{"data":[{"id":"o1","traceId":"t1","type":"GENERATION","name":"llm"}],"meta":{"page":1,"limit":50,"totalItems":1,"totalPages":1}}`))
+			_, err := fmt.Fprintf(w, `{"data":[{"id":"o1","traceId":"t1","type":"GENERATION","name":"llm","startTime":%q}],"meta":{"page":1,"limit":50,"totalItems":1,"totalPages":1}}`, created.Add(time.Minute).Format(time.RFC3339Nano))
+			require.NoError(t, err)
 		case r.URL.Path == "/api/public/observations/o1":
-			_, _ = w.Write([]byte(`{"id":"o1","traceId":"t1","input":"in","output":"out"}`))
+			_, err := fmt.Fprintf(w, `{"id":"o1","traceId":"t1","input":"in","output":"out","startTime":%q}`, created.Add(time.Minute).Format(time.RFC3339Nano))
+			require.NoError(t, err)
 		default:
 			http.NotFound(w, r)
 		}
-	}))
+	})
 	defer srv.Close()
 
 	repo := newTestReadConnRepo()
@@ -166,4 +174,25 @@ func TestGetThreadTraceMetaNotConfigured(t *testing.T) {
 	meta, err := traceApp.GetThreadTraceMeta(context.Background(), 11, "u1", "th1")
 	require.NoError(t, err)
 	require.Equal(t, entity.SourceStateNotConfigured, meta.Association)
+}
+
+func traceFixture(t *testing.T, version string, read http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body any
+		switch {
+		case r.URL.Path == "/api/public/health":
+			body = map[string]any{"status": "OK", "version": version}
+		case r.URL.Path == "/api/public/projects":
+			body = map[string]any{"data": []any{map[string]any{"id": "project-1", "name": "Octop 8091"}}}
+		case (r.URL.Path == "/api/public/traces" || r.URL.Path == "/api/public/v2/observations") && r.URL.Query().Get("sessionId") == "":
+			body = map[string]any{"data": []any{}, "meta": map[string]any{}}
+		default:
+			read(w, r)
+			return
+		}
+		require.NoError(t, json.NewEncoder(w).Encode(body))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
 }

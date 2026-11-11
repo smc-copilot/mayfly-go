@@ -46,9 +46,10 @@ func (t *TraceAPI) Observations(rc *req.Ctx) {
 
 func (t *TraceAPI) Content(rc *req.Ctx) {
 	contentAllowed := hasAnyPerm(rc, permContentRead)
+	q := rc.BindQuery[entity.TraceQuery]()
 	res, err := t.traceApp.GetObservationContent(
 		rc.MetaCtx, instanceIdOf(rc), rc.PathParam("userId"), rc.PathParam("threadId"),
-		rc.PathParam("traceId"), rc.PathParam("observationId"), contentAllowed,
+		rc.PathParam("traceId"), rc.PathParam("observationId"), contentAllowed, q,
 	)
 	biz.ErrIsNil(err)
 	rc.ResData = res

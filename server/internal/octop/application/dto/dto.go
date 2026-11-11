@@ -121,12 +121,12 @@ type BusinessDetail[T any] struct {
 
 // UserDetail 用户详情及四项统计。
 type UserDetail struct {
-	User               *entity.BizUser    `json:"user"`
-	ExpertCount        entity.StatValue   `json:"expertCount"`
-	ThreadCount        entity.StatValue   `json:"threadCount"`
-	TemplateCount      entity.StatValue   `json:"templateCount"`
-	SkillPackageCount  entity.StatValue   `json:"skillPackageCount"`
-	Source             *entity.SourceMeta `json:"source"`
+	User              *entity.BizUser    `json:"user"`
+	ExpertCount       entity.StatValue   `json:"expertCount"`
+	ThreadCount       entity.StatValue   `json:"threadCount"`
+	TemplateCount     entity.StatValue   `json:"templateCount"`
+	SkillPackageCount entity.StatValue   `json:"skillPackageCount"`
+	Source            *entity.SourceMeta `json:"source"`
 }
 
 // CapabilityItem 单个来源能力状态。
@@ -211,19 +211,27 @@ type ReadConnectionTest struct {
 
 // ReadConnectionTestResult 读取连接测试结果。
 type ReadConnectionTestResult struct {
-	Ok      bool       `json:"ok"`
-	State   string     `json:"state"`
-	Message string     `json:"message"`
-	At      *time.Time `json:"at,omitempty"`
+	Ok          bool                         `json:"ok"`
+	State       string                       `json:"state"`
+	Message     string                       `json:"message"`
+	At          *time.Time                   `json:"at,omitempty"`
+	Version     string                       `json:"version,omitempty"`
+	APIMode     string                       `json:"apiMode,omitempty"`
+	ProjectId   string                       `json:"projectId,omitempty"`
+	ProjectName string                       `json:"projectName,omitempty"`
+	Checks      []entity.ReadConnectionCheck `json:"checks,omitempty"`
 }
 
 // ThreadTraceMeta 会话追踪关联摘要（打开追踪抽屉前的状态）。
 type ThreadTraceMeta struct {
-	Thread       *entity.BizThread  `json:"thread"`
-	Source       *entity.SourceMeta `json:"source,omitempty"`
-	Association  string             `json:"association"`
-	Mapping      string             `json:"mapping,omitempty"`
-	ProjectId    string             `json:"projectId,omitempty"`
-	ExternalURL  string             `json:"externalUrl,omitempty"`
-	Message      string             `json:"message,omitempty"`
+	Thread      *entity.BizThread  `json:"thread"`
+	Source      *entity.SourceMeta `json:"source,omitempty"`
+	Connection  *entity.SourceMeta `json:"connection,omitempty"`
+	Version     string             `json:"version,omitempty"`
+	ProjectName string             `json:"projectName,omitempty"`
+	Association string             `json:"association"`
+	Mapping     string             `json:"mapping,omitempty"`
+	ProjectId   string             `json:"projectId,omitempty"`
+	ExternalURL string             `json:"externalUrl,omitempty"`
+	Message     string             `json:"message,omitempty"`
 }

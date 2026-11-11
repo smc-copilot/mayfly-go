@@ -513,9 +513,12 @@ export interface TracePage<T> {
 export interface ThreadTraceMeta {
     thread?: BizThread;
     source?: SourceMeta;
+    connection?: SourceMeta;
     association: string;
     mapping?: string;
     projectId?: string;
+    projectName?: string;
+    version?: string;
     externalUrl?: string;
     message?: string;
 }
@@ -553,4 +556,9 @@ export interface ReadConnectionTestResult {
     state: OctopSourceState;
     message?: string;
     at?: string;
+    version?: string;
+    apiMode?: string;
+    projectId?: string;
+    projectName?: string;
+    checks?: Array<{ name: string; state: string; message?: string }>;
 }

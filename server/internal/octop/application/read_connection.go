@@ -19,6 +19,7 @@ import (
 	"mayfly-go/internal/pkg/utils"
 	"mayfly-go/pkg/base"
 	"mayfly-go/pkg/errorx"
+	"mayfly-go/pkg/i18n"
 	"mayfly-go/pkg/logx"
 	"mayfly-go/pkg/model"
 )
@@ -52,10 +53,10 @@ type instanceAccessor interface {
 type langfuseFactoryFn func(cfg langfuse.Config) *langfuse.Client
 
 type readConnectionAppImpl struct {
-	connRepo     repository.ReadConnection `inject:"T"`
-	instanceApp  instanceAccessor          `inject:"T"`
-	newPreview   previewFactory
-	newLangfuse  langfuseFactoryFn
+	connRepo    repository.ReadConnection `inject:"T"`
+	instanceApp instanceAccessor          `inject:"T"`
+	newPreview  previewFactory
+	newLangfuse langfuseFactoryFn
 }
 
 var _ ReadConnectionApp = (*readConnectionAppImpl)(nil)
@@ -258,9 +259,9 @@ func (a *readConnectionAppImpl) Test(ctx context.Context, instanceId uint64, req
 	default: // langfuse
 		if publicKey == "" || secret == "" {
 			res.State = entity.VerifyStateFailed
-			res.Message = "Langfuse 需要公钥和密钥"
+			res.Message = i18n.TC(ctx, imsg.ErrLangfuseNotConfigured)
 		} else {
-			a.probeLangfuse(ctx, res, baseURL, publicKey, secret)
+			a.probeLangfuse(ctx, res, baseURL, projectId, publicKey, secret)
 		}
 	}
 	res.Ok = res.State == entity.VerifyStateReady
@@ -276,36 +277,23 @@ func (a *readConnectionAppImpl) probePreview(ctx context.Context, res *dto.ReadC
 	res.State, res.Message = classifyPreviewErr(err)
 }
 
-func (a *readConnectionAppImpl) probeLangfuse(ctx context.Context, res *dto.ReadConnectionTestResult, baseURL, publicKey, secret string) {
+func (a *readConnectionAppImpl) probeLangfuse(ctx context.Context, res *dto.ReadConnectionTestResult, baseURL, projectId, publicKey, secret string) {
 	pctx, cancel := context.WithTimeout(ctx, previewTimeout)
 	defer cancel()
 	factory := a.newLangfuse
 	if factory == nil {
 		factory = langfuse.NewClient
 	}
-	_, err := factory(langfuse.Config{
-		BaseURL: baseURL, PublicKey: publicKey, SecretKey: secret, Timeout: previewTimeout,
-	}).Probe(pctx)
-	res.State, res.Message = classifyLangfuseProbeErr(err)
-}
-
-func classifyLangfuseProbeErr(err error) (string, string) {
-	if err == nil {
-		return entity.VerifyStateReady, "连接正常"
+	info, err := factory(langfuse.Config{
+		BaseURL: baseURL, ProjectId: projectId, PublicKey: publicKey, SecretKey: secret, Timeout: previewTimeout,
+	}).Verify(pctx)
+	if info != nil {
+		res.Version, res.APIMode = info.Version, info.APIMode
+		res.ProjectId, res.ProjectName = info.ProjectId, info.ProjectName
+		res.Checks = info.Checks
 	}
-	var he *langfuse.HTTPError
-	switch {
-	case errors.Is(err, langfuse.ErrForbidden):
-		return entity.VerifyStateForbidden, "凭据被拒绝"
-	case errors.As(err, &he):
-		return entity.VerifyStateFailed, "服务返回异常 (http " + strconv.Itoa(he.StatusCode) + ")"
-	case errors.Is(err, langfuse.ErrConfig), errors.Is(err, langfuse.ErrUnsupported):
-		return entity.VerifyStateFailed, trimErr(err)
-	case errors.Is(err, context.DeadlineExceeded):
-		return entity.VerifyStateFailed, "请求超时"
-	default:
-		return entity.VerifyStateFailed, trimErr(err)
-	}
+	res.State = classifyLangfuseErr(err)
+	res.Message = langfuseMessage(ctx, err)
 }
 
 // recordVerify 仅当测试针对已保存且未变更的配置版本时，把结果记到该版本；候选配置的测试不落库。
@@ -320,6 +308,14 @@ func (a *readConnectionAppImpl) recordVerify(ctx context.Context, stored *entity
 		Set("verify_state", res.State).
 		Set("verified_at", res.At).
 		Set("verify_error", truncateRunes(verifyErrorOf(res), 250))
+	if stored.Type == entity.ReadConnTypeLangfuse && res.Ok {
+		extra, err := langfuseVerifiedExtra(stored, res)
+		if err != nil {
+			logx.Errorf("octop record Langfuse verification metadata instance=%d err=%v", stored.InstanceId, err)
+			return
+		}
+		patch = patch.Set("extra_json", extra)
+	}
 	if _, err := a.connRepo.UpdateColsByCond(ctx, patch, model.NewCond().Eq("id", stored.Id).Eq("revision", stored.Revision)); err != nil {
 		logx.Errorf("octop record read connection verify instance=%d type=%s err=%v", stored.InstanceId, stored.Type, err)
 	}

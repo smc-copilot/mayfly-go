@@ -3,7 +3,9 @@ package application
 import (
 	"context"
 	"errors"
-	"fmt"
+	"net"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -14,22 +16,21 @@ import (
 	"mayfly-go/internal/octop/infra/langfuse"
 	"mayfly-go/internal/pkg/utils"
 	"mayfly-go/pkg/errorx"
-	"mayfly-go/pkg/logx"
+	"mayfly-go/pkg/i18n"
+	"mayfly-go/pkg/model"
 )
 
 const (
-	traceReadTimeout = 15 * time.Second
-	// 默认映射版本：候选 sessionId = threadId；必须复核返回行的 sessionId/userId。
-	sessionMapThreadID = "sessionId=thread_id"
+	traceReadTimeout   = 15 * time.Second
+	sessionMapThreadID = "sessionId=thread_id,userId=octop_user_id"
 )
 
-// Trace 会话运行追踪（Langfuse）。
+// Trace reads Langfuse data only after verifying the source Octop session owner.
 type Trace interface {
-	// GetThreadTraceMeta 返回会话元数据 + 追踪关联状态（不拉 Trace 列表）。
 	GetThreadTraceMeta(ctx context.Context, instanceId uint64, userId, threadId string) (*dto.ThreadTraceMeta, error)
 	PageTraces(ctx context.Context, instanceId uint64, userId, threadId string, q *entity.TraceQuery) (*entity.TracePage[entity.BizTrace], error)
 	PageObservations(ctx context.Context, instanceId uint64, userId, threadId, traceId string, q *entity.TraceQuery) (*entity.TracePage[entity.BizObservation], error)
-	GetObservationContent(ctx context.Context, instanceId uint64, userId, threadId, traceId, observationId string, contentAllowed bool) (*entity.BizObservationContent, error)
+	GetObservationContent(ctx context.Context, instanceId uint64, userId, threadId, traceId, observationId string, contentAllowed bool, query ...*entity.TraceQuery) (*entity.BizObservationContent, error)
 }
 
 type langfuseFactory func(cfg langfuse.Config) *langfuse.Client
@@ -51,29 +52,24 @@ func (a *traceAppImpl) clientFactory() langfuseFactory {
 }
 
 func (a *traceAppImpl) GetThreadTraceMeta(ctx context.Context, instanceId uint64, userId, threadId string) (*dto.ThreadTraceMeta, error) {
-	thread, src, err := a.requireThread(ctx, instanceId, userId, threadId)
+	thread, source, err := a.requireThread(ctx, instanceId, userId, threadId)
 	if err != nil {
 		return nil, err
 	}
-	meta := &dto.ThreadTraceMeta{Thread: thread, Source: src, Association: entity.SourceStateNotConfigured}
-	client, cfgView, err := a.openLangfuse(ctx, instanceId)
-	if err != nil {
-		meta.Association = classifyLangfuseOpenErr(err)
-		meta.Message = errMessage(err)
-		return meta, nil
-	}
+	now := time.Now()
+	connection := &entity.SourceMeta{Source: "langfuse", State: entity.SourceStateReady, ReadAt: &now}
+	meta := &dto.ThreadTraceMeta{Thread: thread, Source: source, Connection: connection, Mapping: sessionMapThreadID, Association: entity.SourceStateNotVerified}
 	pctx, cancel := context.WithTimeout(ctx, traceReadTimeout)
 	defer cancel()
-	if _, err := client.Probe(pctx); err != nil {
-		meta.Association = classifyLangfuseErr(err)
-		meta.Message = "Langfuse 连接探测失败"
-		logx.Errorf("octop langfuse probe instance=%d err=%v", instanceId, err)
+	_, view, err := a.openLangfuse(pctx, instanceId)
+	if err != nil {
+		connection.State, connection.Message = classifyLangfuseErr(err), langfuseMessage(ctx, err)
+		meta.Association, meta.Message = connection.State, connection.Message
 		return meta, nil
 	}
-	meta.Association = entity.SourceStateReady
-	meta.ProjectId = cfgView.ProjectId
-	meta.Mapping = sessionMapThreadID
-	meta.ExternalURL = buildSessionURL(cfgView.BaseURL, threadId)
+	meta.ProjectId, meta.ProjectName, meta.Version = view.ProjectId, view.ProjectName, view.Version
+	meta.ExternalURL = buildSessionURL(view.BaseURL, view.ProjectId, threadId)
+	// Authentication establishes connection capability, not session association.
 	return meta, nil
 }
 
@@ -87,43 +83,33 @@ func (a *traceAppImpl) PageTraces(ctx context.Context, instanceId uint64, userId
 		return nil, err
 	}
 	now := time.Now()
-	page := &entity.TracePage[entity.BizTrace]{
-		List: []*entity.BizTrace{}, Total: 0, PageNum: q.PageNum, PageSize: q.PageSize,
-		Source:  &entity.SourceMeta{Source: "langfuse", State: entity.SourceStateReady, ReadAt: &now},
-		Mapping: sessionMapThreadID,
-	}
-
-	client, cfgView, err := a.openLangfuse(ctx, instanceId)
+	from, to, fallback, err := traceWindow(thread, q, now)
 	if err != nil {
-		page.Source.State = classifyLangfuseOpenErr(err)
-		page.Source.Message = errMessage(err)
-		page.Association = page.Source.State
-		return page, nil
+		return nil, errorx.NewBizI(ctx, imsg.ErrTraceQuery)
 	}
-	from, to := traceWindow(thread, q, now)
-	page.CoverageStart = from
-	page.CoverageEnd = to
-	page.ExternalURL = buildSessionURL(cfgView.BaseURL, threadId)
-
+	page := &entity.TracePage[entity.BizTrace]{
+		List: []*entity.BizTrace{}, Total: -1, PageNum: q.PageNum, PageSize: q.PageSize,
+		Source:  &entity.SourceMeta{Source: "langfuse", State: entity.SourceStateReady, ReadAt: &now},
+		Mapping: sessionMapThreadID, CoverageStart: from, CoverageEnd: to,
+	}
 	pctx, cancel := context.WithTimeout(ctx, traceReadTimeout)
 	defer cancel()
-	res, err := client.ListTraces(pctx, langfuse.ListTracesQuery{
-		SessionId: threadId, UserId: userId, From: from, To: to, Page: q.PageNum, Limit: q.PageSize,
-	})
+	client, view, err := a.openLangfuse(pctx, instanceId)
 	if err != nil {
-		page.Source.State = classifyLangfuseErr(err)
-		page.Source.Message = "读取 Trace 失败"
-		page.Association = page.Source.State
-		logx.Errorf("octop langfuse list traces instance=%d thread=%s err=%v", instanceId, threadId, err)
+		failTracePage(ctx, page, err)
 		return page, nil
 	}
-
-	filtered, rejected := recheckTraces(res.Items, threadId, userId, instanceId)
+	page.ExternalURL = buildSessionURL(view.BaseURL, view.ProjectId, threadId)
+	res, err := client.ListTraces(pctx, langfuse.ListTracesQuery{
+		SessionId: threadId, UserId: userId, From: from, To: to, Page: q.PageNum, Limit: q.PageSize, Cursor: q.Cursor, TraceId: strings.TrimSpace(q.TraceId),
+	})
+	if err != nil {
+		failTracePage(ctx, page, err)
+		return page, nil
+	}
+	filtered, rejected := recheckTraces(res.Items, threadId, userId, from, to)
 	if rejected {
-		page.Association = entity.SourceStateAssociationUnverified
-		page.Source.State = entity.SourceStateAssociationUnverified
-		page.Source.Message = "上游返回越界数据，已拒绝该批次"
-		page.List = []*entity.BizTrace{}
+		failTracePage(ctx, page, langfuse.ErrAssociation)
 		return page, nil
 	}
 	if q.HasError != nil {
@@ -132,20 +118,24 @@ func (a *traceAppImpl) PageTraces(ctx context.Context, instanceId uint64, userId
 	if kw := strings.TrimSpace(q.Keyword); kw != "" {
 		filtered = filterTracesByKeyword(filtered, kw)
 	}
-	if tid := strings.TrimSpace(q.TraceId); tid != "" {
-		filtered = filterTracesByID(filtered, tid)
+	page.List, page.Total, page.HasMore, page.NextCursor = filtered, res.Total, res.HasMore, res.NextCursor
+	// Filtering a page cannot establish a global filtered count.
+	if q.HasError != nil || strings.TrimSpace(q.Keyword) != "" {
+		page.Total = -1
 	}
-	page.List = filtered
-	page.Total = res.Total
-	page.HasMore = res.HasMore
-	page.Association = entity.SourceStateReady
-	if len(filtered) == 0 && !res.HasMore {
+	page.Association = entity.SourceStateNotVerified
+	if len(res.Items) > 0 {
+		page.Association = entity.SourceStateReady
+	}
+	if len(res.Items) == 0 && !res.HasMore && q.Cursor == "" && q.PageNum == 1 {
 		page.Association = entity.SourceStateNotFoundInRange
-		page.Source.State = entity.SourceStateNotFoundInRange
-		page.Source.Message = "查询范围内暂未发现追踪（可能延迟上报）"
+		page.Source.Message = i18n.TC(ctx, imsg.MsgTraceNotFoundInRange)
 	}
 	complete := !res.HasMore
 	page.Source.Complete = &complete
+	if fallback {
+		page.Source.Message = joinTraceMessage(page.Source.Message, i18n.TC(ctx, imsg.MsgTraceDefaultWindow))
+	}
 	return page, nil
 }
 
@@ -154,31 +144,38 @@ func (a *traceAppImpl) PageObservations(ctx context.Context, instanceId uint64, 
 		q = &entity.TraceQuery{}
 	}
 	q.Normalize()
-	if _, _, err := a.requireThread(ctx, instanceId, userId, threadId); err != nil {
+	thread, _, err := a.requireThread(ctx, instanceId, userId, threadId)
+	if err != nil {
 		return nil, err
 	}
 	now := time.Now()
-	page := &entity.TracePage[entity.BizObservation]{
-		List: []*entity.BizObservation{}, Total: 0, PageNum: q.PageNum, PageSize: q.PageSize,
-		Source: &entity.SourceMeta{Source: "langfuse", State: entity.SourceStateReady, ReadAt: &now},
-	}
-	// 先确认该 Trace 属于本会话（防伪造 traceId）
-	if err := a.assertTraceBelongs(ctx, instanceId, userId, threadId, traceId); err != nil {
-		return nil, err
-	}
-	client, _, err := a.openLangfuse(ctx, instanceId)
+	from, to, fallback, err := traceWindow(thread, q, now)
 	if err != nil {
-		page.Source.State = classifyLangfuseOpenErr(err)
-		page.Source.Message = errMessage(err)
-		return page, nil
+		return nil, errorx.NewBizI(ctx, imsg.ErrTraceQuery)
 	}
+	page := &entity.TracePage[entity.BizObservation]{List: []*entity.BizObservation{}, Total: -1, PageNum: q.PageNum, PageSize: q.PageSize, Source: &entity.SourceMeta{Source: "langfuse", State: entity.SourceStateReady, ReadAt: &now}, Mapping: sessionMapThreadID, CoverageStart: from, CoverageEnd: to}
 	pctx, cancel := context.WithTimeout(ctx, traceReadTimeout)
 	defer cancel()
-	res, err := client.ListObservations(pctx, langfuse.ListObservationsQuery{TraceId: traceId, Page: q.PageNum, Limit: q.PageSize})
+	client, view, err := a.openLangfuse(pctx, instanceId)
 	if err != nil {
-		page.Source.State = classifyLangfuseErr(err)
-		page.Source.Message = "读取 Observation 失败"
+		failTracePage(ctx, page, err)
 		return page, nil
+	}
+	page.ExternalURL = buildSessionURL(view.BaseURL, view.ProjectId, threadId)
+	if err := assertTraceBelongs(pctx, client, userId, threadId, traceId, from, to); err != nil {
+		failTracePage(ctx, page, err)
+		return page, nil
+	}
+	res, err := client.ListObservations(pctx, langfuse.ListObservationsQuery{TraceId: traceId, SessionId: threadId, UserId: userId, From: from, To: to, Cursor: q.Cursor, Page: q.PageNum, Limit: q.PageSize})
+	if err != nil {
+		failTracePage(ctx, page, err)
+		return page, nil
+	}
+	for _, item := range res.Items {
+		if item == nil || item.ObservationId == "" || item.TraceId != traceId || item.StartTime == nil || item.StartTime.Before(*from) || !item.StartTime.Before(*to) {
+			failTracePage(ctx, page, langfuse.ErrAssociation)
+			return page, nil
+		}
 	}
 	items := markOrphans(res.Items)
 	if typ := strings.TrimSpace(q.Type); typ != "" {
@@ -187,94 +184,114 @@ func (a *traceAppImpl) PageObservations(ctx context.Context, instanceId uint64, 
 	if kw := strings.TrimSpace(q.Keyword); kw != "" {
 		items = filterObsByKeyword(items, kw)
 	}
-	page.List = items
-	page.Total = res.Total
-	page.HasMore = res.HasMore
+	page.List, page.Total, page.HasMore, page.NextCursor = items, res.Total, res.HasMore, res.NextCursor
+	if strings.TrimSpace(q.Type) != "" || strings.TrimSpace(q.Keyword) != "" {
+		page.Total = -1
+	}
+	page.Association = entity.SourceStateReady
 	complete := !res.HasMore
 	page.Source.Complete = &complete
-	page.Association = entity.SourceStateReady
+	if fallback {
+		page.Source.Message = i18n.TC(ctx, imsg.MsgTraceDefaultWindow)
+	}
 	return page, nil
 }
 
-func (a *traceAppImpl) GetObservationContent(ctx context.Context, instanceId uint64, userId, threadId, traceId, observationId string, contentAllowed bool) (*entity.BizObservationContent, error) {
+func (a *traceAppImpl) GetObservationContent(ctx context.Context, instanceId uint64, userId, threadId, traceId, observationId string, contentAllowed bool, query ...*entity.TraceQuery) (*entity.BizObservationContent, error) {
 	if !contentAllowed {
 		return nil, errorx.NewBizI(ctx, imsg.ErrBusinessContentDenied)
 	}
-	if _, _, err := a.requireThread(ctx, instanceId, userId, threadId); err != nil {
-		return nil, err
-	}
-	if err := a.assertTraceBelongs(ctx, instanceId, userId, threadId, traceId); err != nil {
-		return nil, err
-	}
-	client, _, err := a.openLangfuse(ctx, instanceId)
+	thread, _, err := a.requireThread(ctx, instanceId, userId, threadId)
 	if err != nil {
-		return nil, errorx.NewBizI(ctx, imsg.ErrPreviewNotConfigured)
+		return nil, err
+	}
+	q := &entity.TraceQuery{}
+	if len(query) > 0 && query[0] != nil {
+		q = query[0]
+	}
+	from, to, _, err := traceWindow(thread, q, time.Now())
+	if err != nil || strings.TrimSpace(observationId) == "" {
+		return nil, errorx.NewBizI(ctx, imsg.ErrTraceQuery)
 	}
 	pctx, cancel := context.WithTimeout(ctx, traceReadTimeout)
 	defer cancel()
-	obs, content, err := client.GetObservation(pctx, observationId)
+	client, _, err := a.openLangfuse(pctx, instanceId)
 	if err != nil {
-		if errors.Is(err, langfuse.ErrForbidden) {
-			return nil, errorx.NewBizI(ctx, imsg.ErrBusinessContentDenied)
-		}
-		return nil, errorx.NewBizI(ctx, imsg.ErrBusinessSourceFailed)
+		return nil, errorx.NewBiz(langfuseMessage(ctx, err))
 	}
-	if obs.TraceId != "" && obs.TraceId != traceId {
-		return nil, errorx.NewBizI(ctx, imsg.ErrBusinessNotFound)
+	if err := assertTraceBelongs(pctx, client, userId, threadId, traceId, from, to); err != nil {
+		return nil, errorx.NewBiz(langfuseMessage(ctx, err))
+	}
+	obs, content, err := client.GetObservationInScope(pctx, observationId, langfuse.ListObservationsQuery{TraceId: traceId, SessionId: threadId, UserId: userId, From: from, To: to})
+	if err != nil {
+		return nil, errorx.NewBiz(langfuseMessage(ctx, err))
+	}
+	if obs == nil || content == nil || obs.TraceId != traceId || obs.ObservationId != observationId || content.ObservationId != observationId {
+		return nil, errorx.NewBizI(ctx, imsg.ErrLangfuseAssociation)
 	}
 	return content, nil
 }
 
-// --- helpers ---
-
 func (a *traceAppImpl) requireThread(ctx context.Context, instanceId uint64, userId, threadId string) (*entity.BizThread, *entity.SourceMeta, error) {
+	if strings.TrimSpace(userId) == "" || strings.TrimSpace(threadId) == "" {
+		return nil, nil, errorx.NewBizI(ctx, imsg.ErrBusinessNotFound)
+	}
+	if _, err := a.instanceApp.GetVisible(ctx, instanceId); err != nil {
+		return nil, nil, err
+	}
 	detail, err := a.businessApp.GetThread(ctx, instanceId, userId, threadId)
 	if err != nil {
 		return nil, nil, err
 	}
-	if detail == nil || detail.Item == nil {
+	if detail == nil || detail.Item == nil || detail.Item.ThreadId != threadId {
 		return nil, nil, errorx.NewBizI(ctx, imsg.ErrBusinessNotFound)
+	}
+	if detail.Source == nil || detail.Source.State != entity.SourceStateReady {
+		return nil, nil, errorx.NewBizI(ctx, imsg.ErrBusinessSourceFailed)
 	}
 	return detail.Item, detail.Source, nil
 }
 
-func (a *traceAppImpl) assertTraceBelongs(ctx context.Context, instanceId uint64, userId, threadId, traceId string) error {
+func assertTraceBelongs(ctx context.Context, client *langfuse.Client, userId, threadId, traceId string, from, to *time.Time) error {
 	if strings.TrimSpace(traceId) == "" {
-		return errorx.NewBizI(ctx, imsg.ErrBusinessNotFound)
+		return langfuse.ErrQuery
 	}
-	client, _, err := a.openLangfuse(ctx, instanceId)
-	if err != nil {
-		return errorx.NewBizI(ctx, imsg.ErrPreviewNotConfigured)
-	}
-	pctx, cancel := context.WithTimeout(ctx, traceReadTimeout)
-	defer cancel()
-	res, err := client.ListTraces(pctx, langfuse.ListTracesQuery{SessionId: threadId, UserId: userId, Limit: 100})
-	if err != nil {
-		return errorx.NewBizI(ctx, imsg.ErrBusinessSourceFailed)
-	}
-	for _, t := range res.Items {
-		if t.TraceId == traceId {
-			if t.SessionId != "" && t.SessionId != threadId {
-				return errorx.NewBizI(ctx, imsg.ErrBusinessNotFound)
-			}
-			if t.UserId != "" && t.UserId != userId {
-				return errorx.NewBizI(ctx, imsg.ErrBusinessNotFound)
+	// Query this exact trace rather than checking only the first 100 session traces.
+	q := langfuse.ListTracesQuery{TraceId: traceId, SessionId: threadId, UserId: userId, From: from, To: to, Limit: 1}
+	seen := map[string]bool{}
+	for scanned := 0; scanned < 32; scanned++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		res, err := client.ListTraces(ctx, q)
+		if err != nil {
+			return err
+		}
+		checked, rejected := recheckTraces(res.Items, threadId, userId, from, to)
+		if rejected {
+			return langfuse.ErrAssociation
+		}
+		if len(checked) > 0 {
+			if checked[0].TraceId != traceId {
+				return langfuse.ErrAssociation
 			}
 			return nil
 		}
+		if !res.HasMore || res.NextCursor == "" {
+			return langfuse.ErrAssociation
+		}
+		if seen[res.NextCursor] {
+			return langfuse.ErrUnsupported
+		}
+		seen[res.NextCursor] = true
+		q.Cursor = res.NextCursor
 	}
-	return errorx.NewBizI(ctx, imsg.ErrBusinessNotFound)
+	return langfuse.ErrAssociation
 }
 
-type langfuseConnView struct {
-	BaseURL   string
-	ProjectId string
-}
+type langfuseConnView struct{ BaseURL, ProjectId, ProjectName, Version string }
 
 func (a *traceAppImpl) openLangfuse(ctx context.Context, instanceId uint64) (*langfuse.Client, *langfuseConnView, error) {
-	if _, err := a.instanceApp.GetVisible(ctx, instanceId); err != nil {
-		return nil, nil, err
-	}
 	row, err := a.connRepo.GetByInstanceType(ctx, instanceId, entity.ReadConnTypeLangfuse)
 	if err != nil {
 		return nil, nil, err
@@ -286,25 +303,40 @@ func (a *traceAppImpl) openLangfuse(ctx context.Context, instanceId uint64) (*la
 	if err != nil {
 		return nil, nil, err
 	}
-	client := a.clientFactory()(langfuse.Config{
-		BaseURL: row.BaseURL, PublicKey: row.PublicKey, SecretKey: secret, Timeout: traceReadTimeout,
-	})
-	return client, &langfuseConnView{BaseURL: row.BaseURL, ProjectId: row.ProjectId}, nil
+	client := a.clientFactory()(langfuse.Config{BaseURL: row.BaseURL, ProjectId: row.ProjectId, PublicKey: row.PublicKey, SecretKey: secret, Timeout: traceReadTimeout})
+	info, err := client.Verify(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	// A key authenticates a project, not an Octop instance. Without an instance
+	// discriminator shared projects cannot be safely disambiguated.
+	peers, err := a.connRepo.SelectByCond(model.NewCond().Eq("type", entity.ReadConnTypeLangfuse), "instance_id", "base_url", "project_id", "public_key", "credential_configured", "verify_state", "revision", "extra_json")
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, peer := range peers {
+		if peer.InstanceId != instanceId && peer.CredentialConfigured == 1 && sameBaseURL(peer.BaseURL, row.BaseURL) {
+			project, verified := verifiedLangfuseProject(peer)
+			if !verified || project == info.ProjectId || peer.PublicKey == row.PublicKey {
+				return nil, nil, langfuse.ErrAssociation
+			}
+		}
+	}
+	return client, &langfuseConnView{BaseURL: row.BaseURL, ProjectId: info.ProjectId, ProjectName: info.ProjectName, Version: info.Version}, nil
 }
 
 var errLangfuseNotConfigured = errors.New("langfuse not configured")
 
-func classifyLangfuseOpenErr(err error) string {
-	if errors.Is(err, errLangfuseNotConfigured) {
-		return entity.SourceStateNotConfigured
-	}
-	return entity.SourceStateFailed
-}
-
 func classifyLangfuseErr(err error) string {
 	switch {
+	case err == nil:
+		return entity.SourceStateReady
+	case errors.Is(err, errLangfuseNotConfigured):
+		return entity.SourceStateNotConfigured
 	case errors.Is(err, langfuse.ErrForbidden):
 		return entity.SourceStateForbidden
+	case errors.Is(err, langfuse.ErrAssociation), errors.Is(err, langfuse.ErrProject):
+		return entity.SourceStateAssociationUnverified
 	case errors.Is(err, langfuse.ErrUnsupported), errors.Is(err, langfuse.ErrConfig):
 		return entity.SourceStateUnsupported
 	default:
@@ -312,67 +344,100 @@ func classifyLangfuseErr(err error) string {
 	}
 }
 
-func errMessage(err error) string {
-	if errors.Is(err, errLangfuseNotConfigured) {
-		return "未配置 Langfuse 读取连接"
+func langfuseMessage(ctx context.Context, err error) string {
+	var he *langfuse.HTTPError
+	var timeout net.Error
+	switch {
+	case err == nil:
+		return i18n.TC(ctx, imsg.MsgLangfuseReady)
+	case errors.Is(err, errLangfuseNotConfigured):
+		return i18n.TC(ctx, imsg.ErrLangfuseNotConfigured)
+	case errors.Is(err, langfuse.ErrForbidden):
+		return i18n.TC(ctx, imsg.ErrLangfuseForbidden)
+	case errors.Is(err, langfuse.ErrProject):
+		return i18n.TC(ctx, imsg.ErrLangfuseProject)
+	case errors.Is(err, langfuse.ErrAssociation):
+		return i18n.TC(ctx, imsg.ErrLangfuseAssociation)
+	case errors.Is(err, langfuse.ErrQuery):
+		return i18n.TC(ctx, imsg.ErrTraceQuery)
+	case errors.Is(err, langfuse.ErrConfig), errors.Is(err, langfuse.ErrUnsupported):
+		return i18n.TC(ctx, imsg.ErrLangfuseUnsupported)
+	case errors.Is(err, context.DeadlineExceeded) || errors.As(err, &timeout) && timeout.Timeout():
+		return i18n.TC(ctx, imsg.ErrLangfuseTimeout)
+	case errors.As(err, &he) && he.StatusCode == http.StatusTooManyRequests:
+		return i18n.TC(ctx, imsg.ErrLangfuseRateLimited)
+	default:
+		return i18n.TC(ctx, imsg.ErrLangfuseFailed)
 	}
-	return "Langfuse 不可用"
 }
 
-func traceWindow(thread *entity.BizThread, q *entity.TraceQuery, now time.Time) (*time.Time, *time.Time) {
-	var from, to *time.Time
-	to = &now
-	if thread != nil && thread.CreatedAt != nil {
-		from = thread.CreatedAt
-	}
-	if s := strings.TrimSpace(q.StartTime); s != "" {
-		if t, err := time.Parse(time.RFC3339, s); err == nil {
-			from = &t
-		}
-	}
-	if s := strings.TrimSpace(q.EndTime); s != "" {
-		if t, err := time.Parse(time.RFC3339, s); err == nil {
-			to = &t
-		}
-	}
-	return from, to
+func failTracePage[T any](ctx context.Context, page *entity.TracePage[T], err error) {
+	page.Source.State, page.Source.Message = classifyLangfuseErr(err), langfuseMessage(ctx, err)
+	complete := false
+	page.Source.Complete = &complete
+	page.Association = page.Source.State
+	page.ExternalURL = ""
 }
 
-// recheckTraces 复核稳定标识；出现越界则 rejected=true，调用方拒绝整批。
-func recheckTraces(items []*entity.BizTrace, threadId, userId string, instanceId uint64) (kept []*entity.BizTrace, rejected bool) {
-	_ = instanceId
+func traceWindow(thread *entity.BizThread, q *entity.TraceQuery, now time.Time) (*time.Time, *time.Time, bool, error) {
+	from, to := now.Add(-30*24*time.Hour), now
+	fallback := thread == nil || thread.CreatedAt == nil
+	if !fallback {
+		from = *thread.CreatedAt
+	}
+	if q.Cursor != "" && (q.StartTime == "" || q.EndTime == "") {
+		return nil, nil, false, langfuse.ErrQuery
+	}
+	if strings.TrimSpace(q.StartTime) != "" {
+		parsed, err := time.Parse(time.RFC3339Nano, q.StartTime)
+		if err != nil {
+			return nil, nil, false, langfuse.ErrQuery
+		}
+		from = parsed
+		fallback = false
+	}
+	if strings.TrimSpace(q.EndTime) != "" {
+		parsed, err := time.Parse(time.RFC3339Nano, q.EndTime)
+		if err != nil {
+			return nil, nil, false, langfuse.ErrQuery
+		}
+		to = parsed
+	}
+	if !from.Before(to) || len(q.Cursor) > 8192 {
+		return nil, nil, false, langfuse.ErrQuery
+	}
+	return &from, &to, fallback, nil
+}
+
+func recheckTraces(items []*entity.BizTrace, threadId, userId string, from, to *time.Time) (kept []*entity.BizTrace, rejected bool) {
 	kept = make([]*entity.BizTrace, 0, len(items))
-	for _, t := range items {
-		if t == nil {
-			continue
-		}
-		if t.SessionId != "" && t.SessionId != threadId {
+	seen := make(map[string]bool, len(items))
+	for _, item := range items {
+		if item == nil || item.TraceId == "" || item.SessionId != threadId || item.UserId != userId || item.StartTime == nil || item.StartTime.Before(*from) || !item.StartTime.Before(*to) {
 			return nil, true
 		}
-		if t.UserId != "" && t.UserId != userId {
-			return nil, true
+		if !seen[item.TraceId] {
+			kept = append(kept, item)
+			seen[item.TraceId] = true
 		}
-		kept = append(kept, t)
 	}
 	return kept, false
 }
 
-func markOrphans(items []*entity.BizObservation) []*entity.BizObservation {
-	ids := make(map[string]struct{}, len(items))
-	for _, o := range items {
-		if o != nil {
-			ids[o.ObservationId] = struct{}{}
-		}
+func joinTraceMessage(first, second string) string {
+	if first == "" {
+		return second
 	}
-	for _, o := range items {
-		if o == nil {
-			continue
-		}
-		if o.ParentId != "" {
-			if _, ok := ids[o.ParentId]; !ok {
-				o.Orphan = true
-			}
-		}
+	return first + "; " + second
+}
+
+func markOrphans(items []*entity.BizObservation) []*entity.BizObservation {
+	ids := make(map[string]bool, len(items))
+	for _, item := range items {
+		ids[item.ObservationId] = true
+	}
+	for _, item := range items {
+		item.Orphan = item.ParentId != "" && !ids[item.ParentId]
 	}
 	return items
 }
@@ -429,10 +494,10 @@ func filterObsByKeyword(items []*entity.BizObservation, kw string) []*entity.Biz
 	return out
 }
 
-func buildSessionURL(baseURL, sessionId string) string {
+func buildSessionURL(baseURL, projectId, sessionId string) string {
 	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	if base == "" || sessionId == "" {
+	if base == "" || projectId == "" || sessionId == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s/project/sessions/%s", base, sessionId)
+	return base + "/project/" + url.PathEscape(projectId) + "/sessions/" + url.PathEscape(sessionId)
 }
