@@ -3,6 +3,8 @@ package application
 import (
 	"context"
 	"errors"
+	"sort"
+	"strings"
 	"time"
 
 	dbapp "mayfly-go/internal/db/application"
@@ -13,6 +15,7 @@ import (
 	"mayfly-go/internal/octop/imsg"
 	"mayfly-go/internal/octop/infra/businessread"
 	"mayfly-go/pkg/errorx"
+	"mayfly-go/pkg/i18n"
 	"mayfly-go/pkg/logx"
 	"mayfly-go/pkg/model"
 )
@@ -433,19 +436,55 @@ func (a *businessAppImpl) GetSkillPackage(ctx context.Context, instanceId uint64
 func (a *businessAppImpl) PageSkills(ctx context.Context, instanceId uint64, userId, packageId string, q *entity.BusinessQuery) (*dto.BusinessPage[entity.BizSkill], error) {
 	return readPage(ctx, a, instanceId, q, func(c context.Context, rd business.Reader, q *entity.BusinessQuery) (*model.PageResult[*entity.BizSkill], *entity.SourceMeta, error) {
 		// 先确认包属于该用户，避免用他人包 ID 枚举技能。
-		if _, meta, err := rd.GetSkillPackage(c, userId, packageId); err != nil {
+		pkg, meta, err := rd.GetSkillPackage(c, userId, packageId)
+		if err != nil {
 			return nil, meta, err
 		}
-		return rd.PageSkills(c, userId, packageId, q)
+		if pkg == nil {
+			return nil, meta, businessread.ErrNotFound
+		}
+		skills, meta, err := a.packageSkills(c, instanceId, packageId)
+		if err != nil {
+			return nil, meta, err
+		}
+		filtered := make([]*entity.BizSkill, 0, len(skills))
+		keyword := strings.ToLower(strings.TrimSpace(q.Keyword))
+		for _, skill := range skills {
+			if keyword == "" || strings.Contains(strings.ToLower(skill.Slug+" "+skill.Name+" "+skill.Description), keyword) {
+				filtered = append(filtered, skill)
+			}
+		}
+		sort.Slice(filtered, func(i, j int) bool { return filtered[i].Slug < filtered[j].Slug })
+		page := &model.PageResult[*entity.BizSkill]{Total: int64(len(filtered)), List: []*entity.BizSkill{}, PageNum: q.PageNum, PageSize: q.PageSize}
+		// 先限制页码再乘页大小，避免极大页码溢出。
+		if q.PageNum-1 <= len(filtered)/q.PageSize {
+			start := (q.PageNum - 1) * q.PageSize
+			end := min(start+q.PageSize, len(filtered))
+			page.List = filtered[start:end]
+		}
+		return page, meta, nil
 	})
 }
 
 func (a *businessAppImpl) GetSkill(ctx context.Context, instanceId uint64, userId, packageId, slug string) (*dto.BusinessDetail[entity.BizSkill], error) {
 	d, err := readOne(ctx, a, instanceId, func(c context.Context, rd business.Reader) (*entity.BizSkill, *entity.SourceMeta, error) {
-		if _, meta, err := rd.GetSkillPackage(c, userId, packageId); err != nil {
+		pkg, meta, err := rd.GetSkillPackage(c, userId, packageId)
+		if err != nil {
 			return nil, meta, err
 		}
-		return rd.GetSkill(c, userId, packageId, slug)
+		if pkg == nil {
+			return nil, meta, businessread.ErrNotFound
+		}
+		skills, meta, err := a.packageSkills(c, instanceId, packageId)
+		if err != nil {
+			return nil, meta, err
+		}
+		for _, skill := range skills {
+			if skill.Slug == slug {
+				return skill, meta, nil
+			}
+		}
+		return nil, meta, businessread.ErrNotFound
 	})
 	if err != nil || d.Item == nil {
 		return d, err
@@ -459,6 +498,28 @@ func (a *businessAppImpl) GetSkill(ctx context.Context, instanceId uint64, userI
 		d.Item.Files = files
 	}
 	return d, nil
+}
+
+func (a *businessAppImpl) packageSkills(ctx context.Context, instanceId uint64, packageId string) ([]*entity.BizSkill, *entity.SourceMeta, error) {
+	now := time.Now()
+	meta := &entity.SourceMeta{Source: "octop_api", State: entity.SourceStateReady, ReadAt: &now}
+	pc, _, err := loadPreviewClient(ctx, a.connRepo, a.previewFactory(), instanceId)
+	if err == nil && pc == nil {
+		meta.State = entity.SourceStateNotConfigured
+		meta.Message = i18n.TC(ctx, imsg.ErrPreviewNotConfigured)
+		return nil, meta, errPreviewUnavailable
+	}
+	var skills []*entity.BizSkill
+	if err == nil {
+		skills, err = pc.ListSkills(ctx, packageId)
+	}
+	if err != nil {
+		meta.State, _ = classifyPreviewErr(err)
+		meta.Message = i18n.TC(ctx, imsg.ErrBusinessSourceFailed)
+		return nil, meta, err
+	}
+	meta.LastSuccessAt = &now
+	return skills, meta, nil
 }
 
 // ---------------------------------------------------------------- preview / files

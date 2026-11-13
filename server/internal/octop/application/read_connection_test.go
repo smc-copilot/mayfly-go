@@ -51,11 +51,16 @@ func (s *stubInstanceAccess) GetVisible(_ context.Context, id uint64) (*entity.O
 }
 
 type fakePreview struct {
+	skills   []*entity.BizSkill
 	probeErr error
 	files    []entity.BizFileEntry
 	content  *entity.BizFileContent
 	listErr  error
 	getErr   error
+}
+
+func (f *fakePreview) ListSkills(context.Context, string) ([]*entity.BizSkill, error) {
+	return f.skills, f.listErr
 }
 
 func (f *fakePreview) ListSkillFiles(context.Context, string, string) ([]entity.BizFileEntry, error) {

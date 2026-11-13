@@ -263,7 +263,7 @@ func TestBusinessGetSkillAttachesPreviewFiles(t *testing.T) {
 		pkg:   &entity.BizSkillPackage{PackageId: "p1", CreatedBy: "1"},
 		skill: &entity.BizSkill{Slug: "s1", Name: "Skill"},
 	}
-	preview := &fakePreview{files: []entity.BizFileEntry{{FileId: "f1", Name: "SKILL.md"}}}
+	preview := &fakePreview{skills: []*entity.BizSkill{{Slug: "s1", Name: "Skill"}}, files: []entity.BizFileEntry{{FileId: "f1", Name: "SKILL.md"}}}
 	app := newBusinessApp(nil, rd, preview, repo)
 
 	detail, err := app.GetSkill(ctx, 1, "1", "p1", "s1")

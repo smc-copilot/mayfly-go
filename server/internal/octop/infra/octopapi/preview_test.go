@@ -18,6 +18,20 @@ type seen struct {
 	auth string
 }
 
+func TestListSkillsRejectsMalformedSummaries(t *testing.T) {
+	for _, body := range []string{`null`, `{}`, `[{"name":"no slug"}]`, `[null]`} {
+		t.Run(body, func(t *testing.T) {
+			srv, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+				if _, err := w.Write([]byte(body)); err != nil {
+					t.Error(err)
+				}
+			})
+			_, err := NewPreviewClient(PreviewConfig{BaseURL: srv.URL}).ListSkills(context.Background(), "p1")
+			require.Error(t, err)
+		})
+	}
+}
+
 func newServer(t *testing.T, handler http.HandlerFunc) (*httptest.Server, *[]seen) {
 	t.Helper()
 	var reqs []seen

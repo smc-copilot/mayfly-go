@@ -147,6 +147,7 @@ const templateTotal = ref<number | null>(null);
 const packageTotal = ref<number | null>(null);
 const templateSource = ref<SourceMeta | null>(null);
 const packageSource = ref<SourceMeta | null>(null);
+const skillSource = ref<SourceMeta | null>(null);
 const selectedPackageId = ref<string | undefined>();
 
 const templateDrawerVisible = ref(false);
@@ -185,6 +186,7 @@ const statusSources = computed<SourceMeta[]>(() => {
     const items: SourceMeta[] = [];
     if (templateSource.value) items.push(templateSource.value);
     if (packageSource.value) items.push(packageSource.value);
+    if (selectedPackageId.value && skillSource.value) items.push(skillSource.value);
     return items;
 });
 
@@ -245,9 +247,17 @@ const packageHooks = computed(() =>
         }
     })
 );
-const skillHooks = computed(() =>
-    ctx.bindTable<BizPage<BizSkill>>({ id: instanceId.value, userId: userId.value, packageId: selectedPackageId.value })
-);
+const skillHooks = computed(() => {
+    const packageId = selectedPackageId.value;
+    return ctx.bindTable<BizPage<BizSkill>>({ id: instanceId.value, userId: userId.value, packageId }, (res) => {
+        if (selectedPackageId.value === packageId) skillSource.value = res?.source ?? null;
+    });
+});
+
+watch(selectedPackageId, () => {
+    skillSource.value = null;
+    skillQuery.value.pageNum = 1;
+});
 
 const onInstanceChange = (id: number | undefined) => {
     selectedPackageId.value = undefined;
@@ -292,6 +302,7 @@ watch(
         packageTotal.value = null;
         templateSource.value = null;
         packageSource.value = null;
+        skillSource.value = null;
     }
 );
 </script>

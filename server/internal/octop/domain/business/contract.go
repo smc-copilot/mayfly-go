@@ -30,6 +30,7 @@ type Reader interface {
 
 // PreviewClient Octop 预览 API 契约（技能条目、文件目录与内容）。
 type PreviewClient interface {
+	ListSkills(ctx context.Context, packageId string) ([]*entity.BizSkill, error)
 	ListSkillFiles(ctx context.Context, packageId, slug string) ([]entity.BizFileEntry, error)
 	ListTemplateFiles(ctx context.Context, templateId string) ([]entity.BizFileEntry, error)
 	GetFileContent(ctx context.Context, fileId string) (*entity.BizFileContent, error)

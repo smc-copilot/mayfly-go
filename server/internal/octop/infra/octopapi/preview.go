@@ -20,9 +20,10 @@ var _ business.PreviewClient = (*PreviewClient)(nil)
 
 // 预览 API 路径。
 //
-// NOTE(S0): 以下路径基于 Octop REST 习惯推断，尚未对照真实 Octop 服务核验，
-// 响应字段名也做了 camelCase / snake_case 双兼容。S0 必须确认后再固化。
+// 技能摘要列表已对照 Octop skill_packages.list_package_skills 核验。
+// 文件预览路径仍沿用旧适配，响应字段兼容 camelCase / snake_case。
 const (
+	pathPackageSkills = "/api/skill-packages/%s/skills"
 	pathSkillFiles    = "/api/skill-packages/%s/skills/%s/files"
 	pathTemplateFiles = "/api/experts/published/%s/files"
 	pathFileContent   = "/api/preview/files/%s"
@@ -51,7 +52,9 @@ type PreviewHTTPError struct {
 	StatusCode int
 }
 
-func (e *PreviewHTTPError) Error() string { return fmt.Sprintf("octop preview api: http %d", e.StatusCode) }
+func (e *PreviewHTTPError) Error() string {
+	return fmt.Sprintf("octop preview api: http %d", e.StatusCode)
+}
 
 // ErrPreviewConfig 预览客户端配置非法。
 var ErrPreviewConfig = errors.New("octop preview api: invalid config")
@@ -92,6 +95,31 @@ func NewPreviewClient(cfg PreviewConfig) *PreviewClient {
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	return c
+}
+
+// ListSkills 从 Octop 的文件目录索引读取技能摘要；包内技能并非 PostgreSQL 表。
+func (c *PreviewClient) ListSkills(ctx context.Context, packageId string) ([]*entity.BizSkill, error) {
+	p, err := buildPath(pathPackageSkills, packageId)
+	if err != nil {
+		return nil, err
+	}
+	body, _, err := c.get(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	var skills []*entity.BizSkill
+	if err := json.Unmarshal(unwrapData(body), &skills); err != nil {
+		return nil, fmt.Errorf("octop preview api: decode skill list: %w", err)
+	}
+	if skills == nil || len(skills) > maxListEntries {
+		return nil, errors.New("octop preview api: invalid or oversized skill list")
+	}
+	for _, skill := range skills {
+		if skill == nil || skill.Slug == "" {
+			return nil, errors.New("octop preview api: skill slug is missing")
+		}
+	}
+	return skills, nil
 }
 
 // ListSkillFiles 列出技能包内某技能的文件。
